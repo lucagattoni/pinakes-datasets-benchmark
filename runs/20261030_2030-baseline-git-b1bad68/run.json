@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "run_id": "20261030_2030-baseline-git-b1bad68",
+  "status": "complete",
+  "started_utc": "2026-10-30T20:30:42+00:00",
+  "config": {
+    "name": "baseline",
+    "description": "Pinakes as a user meets it: sentence-transformers provider, every default, no title in the embedded text.",
+    "backend": "st",
+    "chunking_metadata": "off",
+    "chunking_max_tokens": null
+  },
+  "pinakes": {
+    "version": "0.32.8",
+    "source": "git",
+    "commit": "b1bad6803346f1d3884ad9dbc64570fd0ec57aa4",
+    "url": "https://github.com/lucagattoni/pinakes",
+    "code_sha256": "ad0db0547b7e247b7f9e26a8d04be6257912d79106ca42f42e9c10cae1e13ace"
+  },
+  "settings": {
+    "embedding": {
+      "provider": "sentence-transformers",
+      "model": "BAAI/bge-small-en-v1.5",
+      "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+      "dim": 384,
+      "max_seq_length": 512
+    },
+    "rerank": {
+      "provider": "sentence-transformers",
+      "model": "BAAI/bge-reranker-base",
+      "revision": "2cfc18c9415c912f9d8155881c133215df768a70",
+      "dim": 0,
+      "max_seq_length": 514
+    },
+    "chunking": {
+      "headings": "none",
+      "max_tokens": 510,
+      "overlap": 64,
+      "metadata": "off"
+    },
+    "retrieval": {
+      "candidates_per_source": 50,
+      "fusion": "rrf",
+      "fusion_top_k": 20,
+      "final_k": 8,
+      "rerank": "local",
+      "vector_tier": "auto",
+      "vector_tier_resolved": "numpy"
+    },
+    "confidence_thresholds": null
+  },
+  "dataset": {
+    "source_repo": "yixuantt/MultiHopRAG",
+    "revision": "71ac0d0bd1f951d2d6b70311f7d2ae404e1ffa82",
+    "sha256": {
+      "corpus.json": "20b61b5ab84de84a927420c5d265b7ec8d859ae49980699958a787ade9e4d28f",
+      "MultiHopRAG.json": "03cfb4926461f868684903aadc8024447bdda5bb3f6804741424cce338515bff"
+    },
+    "articles": 609,
+    "queries": 2556
+  },
+  "benchmark": {
+    "version": "0.1.0",
+    "commit": null,
+    "dirty": null
+  },
+  "environment": {
+    "python": "3.13.18",
+    "platform": "macOS-27.2-arm64-arm-64bit-Mach-O",
+    "torch": "2.15.0",
+    "mps_available": true,
+    "devices": {
+      "embedding": "mps:0",
+      "rerank": "mps:0"
+    }
+  },
+  "execution": {
+    "workers": 3,
+    "passages_per_search": 20,
+    "sample_base_queries": 200,
+    "ran": 639,
+    "skipped": 0,
+    "seconds": 204.5,
+    "wall_seconds": 204.5
+  },
+  "items": {
+    "total": 639,
+    "by_variant": {
+      "base": 200,
+      "f-cat-tag": 112,
+      "f-cat-path": 112,
+      "f-src-tag": 38,
+      "f-date": 177
+    }
+  },
+  "reproducibility": {
+    "checked": 60,
+    "ranking_mismatches": 0,
+    "max_abs_score_difference": 0.0
+  },
+  "finished_utc": "2026-10-30T20:34:35+00:00"
+}

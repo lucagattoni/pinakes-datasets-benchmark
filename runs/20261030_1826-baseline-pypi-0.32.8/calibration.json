@@ -1,0 +1,30 @@
+{
+  "split": {
+    "salt": "pnkbench-split-v1",
+    "rule": "sha256(salt:id)[0] even -> fit",
+    "fit_null": 147,
+    "fit_answerable_used": 150,
+    "eval_null": 154,
+    "eval_answerable": 1140
+  },
+  "thresholds": {
+    "fitted_for": "BAAI/bge-reranker-base@2cfc18c9415c912f9d8155881c133215df768a70",
+    "low_below": 0.0124,
+    "high_above": 0.1565
+  },
+  "cross_check_against_stored_scores": {
+    "null_scores": 147,
+    "pinakes_low_below": 0.0124,
+    "rederived_low_below": 0.012386239133775234,
+    "pinakes_high_above": 0.1565,
+    "rederived_high_above": 0.15650448203086853,
+    "agrees": true
+  },
+  "parity_with_pinakes_labels": {
+    "checked": 600,
+    "label_mismatches": 0,
+    "mismatch_ids": [],
+    "max_abs_top1_difference_vs_recorded": 0.0
+  },
+  "pinakes_calibrate_output": "fitted on 150 answerable and 147 unanswerable questions\n  answerable scores:   0.000 .. 1.000\n  unanswerable scores: 0.000 .. 0.987\n\nPaste this into pinakes.toml \u2014 nothing here writes it for you:\n\n[retrieval.confidence]\nfitted_for = \"BAAI/bge-reranker-base@2cfc18c9415c912f9d8155881c133215df768a70\"\nlow_below  = 0.0124\nhigh_above = 0.1565\n"
+}

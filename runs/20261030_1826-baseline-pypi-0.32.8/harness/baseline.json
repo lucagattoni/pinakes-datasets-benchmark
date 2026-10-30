@@ -1,0 +1,14 @@
+{
+  "questions": 2370,
+  "recall_at_k": 0.935,
+  "mrr": 0.8167,
+  "rerank_precision": 0.7319,
+  "false_abstain": 0.0068,
+  "false_confidence": 0.1623,
+  "confidence_coverage": 1.0,
+  "by_kind": {
+    "filter": 0.9554,
+    "multi-hop": 0.9158,
+    "no-answer": 1.0
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "k": 5,
+  "questions": 2370,
+  "by_variant": {
+    "base": 1294,
+    "f-cat-tag": 782,
+    "f-src-tag": 294
+  },
+  "wall_seconds": 1002.2,
+  "metrics": {
+    "questions": 2370,
+    "recall_at_k": 0.9368,
+    "mrr": 0.8245,
+    "rerank_precision": 0.7437,
+    "false_abstain": 0.0063,
+    "false_confidence": 0.1623,
+    "confidence_coverage": 1.0,
+    "by_kind": {
+      "filter": 0.9582,
+      "multi-hop": 0.9167,
+      "no-answer": 1.0
+    }
+  },
+  "note": "any-of scoring: a hit is any one expected article among the first k passages; multi-hop questions carry no scripted hops; eval half only"
+}

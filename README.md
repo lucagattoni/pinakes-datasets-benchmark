@@ -8,8 +8,37 @@ commit of this repository produced it.
 
 ## Results
 
-The first full run (the baseline: all 8,497 searches, then calibration and Pinakes' own harness) was still in progress
-when this repository was made public. This section is filled in from `runs/` when it completes.
+First full run, **Pinakes 0.32.8 from PyPI with its defaults** on MultiHop-RAG: 2,255 answerable and 301 null questions, 8,497 searches in all.
+Everything below is read from the committed run
+[`20261030_1826-baseline-pypi-0.32.8`](runs/20261030_1826-baseline-pypi-0.32.8/report.md); intervals are 95% ([how each measure is defined](#what-is-measured)).
+
+**Finding some of the evidence is easy; finding all of it is not.** A question needs two to four articles.
+
+| In the first… | at least one gold article (Pinakes' own harness counts this a hit) | **every** gold article |
+|---|---|---|
+| 5 passages | 91.5% | 33.8% |
+| 8 passages (what `pnk search` returns by default) | 96.8% | **43.4%** (41.3–45.4) |
+| 20 passages (the reranker's whole pool) | not computed | 61.0% (58.9–63.0) |
+
+- **By how much evidence a question needs**, every gold article in the first 8 passages: two articles 67.1%, three 22.1%, four 7.4%. By type: comparison 60.3%, temporal 43.9%, inference 25.2%.
+- **Where the other 56.6% go.** For 39.0% of answerable questions at least one gold article is missing from the whole 20-passage pool; for a further 17.6% every gold article is in the pool but not all in the first 8.
+- **Abstention.** The top rerank score separates null from answerable questions well: AUROC 0.944 (0.929–0.957). The null questions are worded differently from the rest, so this was re-checked on the 18 that have none of those tells: 0.945 (0.882–0.982), so it is not an artefact of wording (a small sample, hence the wide interval).
+- **Confidence labels.** Thresholds fitted on one half of the questions and read on the other: a null question is labelled high-confidence 16.2% of the time (11.2–22.9, n=154) against 10.9% on the half the thresholds were fitted on, which is the optimism `pinakes.calibrate` itself warns about. An answerable question whose evidence was found (by Pinakes' any-article definition) is labelled low 1.1% of the time.
+- **Filters.** Across 5,941 filtered searches: 0 returned an article the filter excludes, 0 showed the symptom of a filter applied after retrieval (a candidate pool smaller than 20 although at least 20 articles were admitted), and the tag and the path-prefix spelling of the same category returned identical results in all 1,544 pairs. Filtering helped far more questions than it hurt but is not monotone: with an oracle filter, every gold article in the first 10 articles went from 63.5% to 66.7% for a category (+65 questions, −15), from 75.1% to 83.9% for a source (+56, −3) and from 57.5% to 72.7% for a date window (+360, −17).
+- **The metadata-prefix variant does not help.** Embedding each chunk's title (which also requires `max_tokens = 459`) leaves the first 8 passages at 42.3% against 43.4% (79 questions gained, 104 lost, p = 0.076) and loses ground in the pool: 55.7% against 61.0% (71 gained, 191 lost, p < 0.0001). Its 20 passages cover fewer distinct articles (median 9 against 10). Setting aside the 11 articles that the lower `max_tokens` re-splits, and the 48 questions that need them, changes nothing. [Paired comparison](runs/compare--20261030_1826-baseline-pypi-0.32.8--20261030_1910-metadata-prefix-pypi-0.32.8.md).
+- **Pinakes' own harness agrees where it overlaps.** `python -m pinakes.eval` on the held-out half reports a false-confidence rate of 0.162, the same figure as above; its recall (0.935) is high because it counts any one article.
+- **Pinakes `main` against the release.** The 0.32.8 release and `main` at `b1bad68` both report version 0.32.8, but the installed Python is byte-identical (the same code hash, `ad0db0547b7e…`), and on a **freshly rebuilt** knowledge base 200 of 200 sampled searches returned the same passages in the same order with the same scores ([comparison](runs/compare--20261030_1826-baseline-pypi-0.32.8--20261030_2030-baseline-git-b1bad68.md); that sample was run from a scratch checkout, so its header records no benchmark commit). The same check shows that rebuilding is deterministic.
+- **The same searches, repeated in one process** after the run, returned identical rankings and scores for 60 of 60; on a separate 147-item probe, rankings and scores were also identical whether 1, 2, 3 or 4 worker processes ran.
+
+### What this shows about Pinakes
+
+- **A paragraph is a chunk, by design** ([DESIGN §4.6](https://github.com/lucagattoni/pinakes/blob/main/docs/DESIGN.md)). On plain-text news this gives 28,748 chunks for 609 articles, median 38 tokens, so 20 passages cover about 10 articles (median; 6 to 15 at the 10th to 90th percentile). That is the context for the gap between "some" and "all" above.
+- **The rerank score scale depends on the provider.** With `sentence-transformers` the reranker returns sigmoid probabilities between 0 and 1 (read from Pinakes' provider code and the sentence-transformers source, and seen in every one of this run's scores), while Pinakes' own calibration notes record values of about −0.28 and −7.85. A confidence threshold is stored with `fitted_for = model@revision`, which names neither provider nor scale. Whether a threshold fitted under one provider is silently misapplied under the other was **not run here** (no `fastembed` environment); it is worth checking.
+- **`metadata = "prefix"` needs a lower `max_tokens`**: Pinakes refuses to build at the default 510 for 37 of these 609 documents, and names 459 as the limit that fits them all.
+
+### Limits
+
+One dataset, whose questions and answers were generated by a language model; one machine; default settings throughout (`final_k` and the candidate pool sizes were not tuned); the filters are oracles built from the gold articles' own metadata, so they test the machinery and not a user's choice of filter; latencies were measured with three workers sharing one GPU and say little about a single query. Not run yet: a `fastembed` baseline, Pinakes' graph channel, and the paid `--deep` loop.
 
 ## The two things being measured
 

@@ -1,0 +1,172 @@
+{
+  "a": {
+    "run_id": "20261030_1826-baseline-pypi-0.32.8",
+    "config": "baseline",
+    "passages_per_search": 20,
+    "chunking_metadata": "off",
+    "chunking_max_tokens": null,
+    "pinakes": "0.32.8 (pypi, code ad0db0547b7e)"
+  },
+  "b": {
+    "run_id": "20261030_1910-metadata-prefix-pypi-0.32.8",
+    "config": "metadata-prefix",
+    "passages_per_search": 20,
+    "chunking_metadata": "prefix",
+    "chunking_max_tokens": 459,
+    "pinakes": "0.32.8 (pypi, code ad0db0547b7e)"
+  },
+  "questions": {
+    "a": 2556,
+    "b": 2556,
+    "compared": 2556
+  },
+  "identical_searches": {
+    "of": 2556,
+    "same_passages_and_scores": 5
+  },
+  "answerable": {
+    "all_evidence_in_first_8_passages": {
+      "n": 2255,
+      "a_rate": 0.4337028824833703,
+      "b_rate": 0.42261640798226163,
+      "b_found_a_missed": 79,
+      "a_found_b_missed": 104,
+      "both_found": 874,
+      "neither_found": 1198,
+      "sign_test_p": 0.07575398776330051
+    },
+    "all_evidence_in_first_20_passages": {
+      "n": 2255,
+      "a_rate": 0.6097560975609756,
+      "b_rate": 0.5565410199556541,
+      "b_found_a_missed": 71,
+      "a_found_b_missed": 191,
+      "both_found": 1184,
+      "neither_found": 809,
+      "sign_test_p": 7.087824458554651e-14
+    },
+    "all_evidence_in_first_5_docs": {
+      "n": 2255,
+      "a_rate": 0.43458980044345896,
+      "b_rate": 0.4376940133037694,
+      "b_found_a_missed": 108,
+      "a_found_b_missed": 101,
+      "both_found": 879,
+      "neither_found": 1167,
+      "sign_test_p": 0.6782220277695626
+    },
+    "all_evidence_in_first_10_docs": {
+      "n": 2255,
+      "a_rate": 0.5751662971175167,
+      "b_rate": 0.5277161862527716,
+      "b_found_a_missed": 72,
+      "a_found_b_missed": 179,
+      "both_found": 1118,
+      "neither_found": 886,
+      "sign_test_p": 1.0848466571036294e-11
+    },
+    "any_evidence_in_first_5_passages": {
+      "n": 2255,
+      "a_rate": 0.9148558758314855,
+      "b_rate": 0.9144124168514413,
+      "b_found_a_missed": 46,
+      "a_found_b_missed": 47,
+      "both_found": 2016,
+      "neither_found": 146,
+      "sign_test_p": 1.0
+    }
+  },
+  "by_question_type": {
+    "comparison_query": {
+      "n": 856,
+      "a_rate": 0.602803738317757,
+      "b_rate": 0.5899532710280374,
+      "b_found_a_missed": 39,
+      "a_found_b_missed": 50,
+      "both_found": 466,
+      "neither_found": 301,
+      "sign_test_p": 0.2890960806960603
+    },
+    "inference_query": {
+      "n": 816,
+      "a_rate": 0.25245098039215685,
+      "b_rate": 0.25245098039215685,
+      "b_found_a_missed": 24,
+      "a_found_b_missed": 24,
+      "both_found": 182,
+      "neither_found": 586,
+      "sign_test_p": 1.0
+    },
+    "temporal_query": {
+      "n": 583,
+      "a_rate": 0.4391080617495712,
+      "b_rate": 0.41509433962264153,
+      "b_found_a_missed": 16,
+      "a_found_b_missed": 30,
+      "both_found": 226,
+      "neither_found": 311,
+      "sign_test_p": 0.054076031858869555
+    }
+  },
+  "null_top1_auroc": {
+    "a": 0.9441536342273722,
+    "b": 0.9437381676746396
+  },
+  "without_set_aside_articles": {
+    "articles": 11,
+    "questions_kept": 2207,
+    "questions_set_aside": 48,
+    "answerable": {
+      "all_evidence_in_first_8_passages": {
+        "n": 2207,
+        "a_rate": 0.43407340280924334,
+        "b_rate": 0.42274580879021295,
+        "b_found_a_missed": 78,
+        "a_found_b_missed": 103,
+        "both_found": 855,
+        "neither_found": 1171,
+        "sign_test_p": 0.07414703959084008
+      },
+      "all_evidence_in_first_20_passages": {
+        "n": 2207,
+        "a_rate": 0.6139555958314454,
+        "b_rate": 0.5591300407793385,
+        "b_found_a_missed": 69,
+        "a_found_b_missed": 190,
+        "both_found": 1165,
+        "neither_found": 783,
+        "sign_test_p": 2.987924702022167e-14
+      },
+      "all_evidence_in_first_5_docs": {
+        "n": 2207,
+        "a_rate": 0.43543271409152695,
+        "b_rate": 0.43815133665609424,
+        "b_found_a_missed": 106,
+        "a_found_b_missed": 100,
+        "both_found": 861,
+        "neither_found": 1140,
+        "sign_test_p": 0.7276586764549052
+      },
+      "all_evidence_in_first_10_docs": {
+        "n": 2207,
+        "a_rate": 0.5786135024920707,
+        "b_rate": 0.5301314000906208,
+        "b_found_a_missed": 71,
+        "a_found_b_missed": 178,
+        "both_found": 1099,
+        "neither_found": 859,
+        "sign_test_p": 8.864147225091959e-12
+      },
+      "any_evidence_in_first_5_passages": {
+        "n": 2207,
+        "a_rate": 0.9148164929768917,
+        "b_rate": 0.9130040779338469,
+        "b_found_a_missed": 42,
+        "a_found_b_missed": 46,
+        "both_found": 1973,
+        "neither_found": 146,
+        "sign_test_p": 0.7493290032022806
+      }
+    }
+  }
+}
