@@ -306,3 +306,28 @@ def test_a_pool_that_never_finishes_a_batch_is_reported_not_waited_for(
             limit=20,
             log=lambda m: None,
         )
+
+
+def test_git_state_ignores_the_runs_directory_but_notices_other_changes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import subprocess
+
+    from pnkbench import paths, pipeline
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(tmp_path), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.test")
+    git("config", "user.name", "t")
+    (tmp_path / "code.py").write_text("x = 1\n")
+    git("add", "code.py")
+    git("commit", "-q", "-m", "init")
+    monkeypatch.setenv(paths.ROOT_ENV, str(tmp_path))
+    assert pipeline.git_state()["dirty"] is False
+    (tmp_path / "runs" / "r1").mkdir(parents=True)
+    (tmp_path / "runs" / "r1" / "rows.jsonl").write_text("{}\n")
+    assert pipeline.git_state()["dirty"] is False  # this tool's own output
+    (tmp_path / "code.py").write_text("x = 2\n")
+    assert pipeline.git_state()["dirty"] is True

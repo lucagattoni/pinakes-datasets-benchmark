@@ -34,7 +34,12 @@ def utc_now() -> datetime:
 
 
 def git_state() -> dict[str, Any]:
-    """The benchmark repository's own commit and whether the tree was clean when it ran."""
+    """The benchmark repository's own commit and whether the tree was clean when it ran.
+
+    `runs/` is left out of the dirtiness check: it holds this tool's own output, including the
+    directory of the run being recorded and the results of earlier runs not yet committed, and
+    counting them would make every run report itself as dirty.
+    """
 
     def git(*args: str) -> str:
         return subprocess.run(
@@ -44,7 +49,9 @@ def git_state() -> dict[str, Any]:
     commit = git("rev-parse", "HEAD")
     return {
         "commit": commit or None,
-        "dirty": bool(git("status", "--porcelain")) if commit else None,
+        "dirty": bool(git("status", "--porcelain", "--", ".", ":(exclude)runs"))
+        if commit
+        else None,
     }
 
 
