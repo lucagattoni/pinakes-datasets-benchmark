@@ -215,6 +215,7 @@ def test_the_whole_pipeline_runs_on_a_dataset_laid_out_like_the_real_one(
     assert header["settings"]["embedding"]["revision"] == "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
     assert header["reproducibility"]["ranking_mismatches"] == 0
     summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["scored_by"]["benchmark"]["version"] and summary["scored_by"]["scored_utc"]
     assert summary["counts"]["base"] == 10 and summary["counts"]["null"] == 2
     assert summary["abstention"]["labels"] is not None
     for variant in items.FILTER_VARIANTS:

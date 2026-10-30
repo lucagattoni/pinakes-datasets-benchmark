@@ -429,3 +429,20 @@ def test_repair_tail_leaves_a_clean_or_absent_file_alone(tmp_path: Path) -> None
     before = clean.read_bytes()
     runner.repair_tail(clean)
     assert clean.read_bytes() == before
+
+
+def test_a_set_aside_reading_drops_the_questions_whose_gold_includes_an_affected_article(
+    tmp_path: Path,
+) -> None:
+    rows = _base_rows({})
+    degraded = _base_rows({"mhr-0000": False, "mhr-0001": False})
+    a = _write_run(tmp_path, "a", rows)
+    b = _write_run(tmp_path, "b", degraded)
+    full = compare.compare_runs(a, b, make_dataset())
+    assert full["answerable"]["all_evidence_in_first_8_passages"]["a_found_b_missed"] == 2
+    assert "without_set_aside_articles" not in full
+    # article 3 is in the gold of mhr-0000 {0,3} and mhr-0001 {1,2,3}; setting it aside drops both
+    aside = compare.compare_runs(a, b, make_dataset(), set_aside={3})["without_set_aside_articles"]
+    assert aside["articles"] == 1 and aside["questions_set_aside"] >= 2
+    assert aside["answerable"]["all_evidence_in_first_8_passages"]["a_found_b_missed"] == 0
+    assert aside["questions_kept"] == 8 - aside["questions_set_aside"]

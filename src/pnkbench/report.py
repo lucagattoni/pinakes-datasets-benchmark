@@ -55,7 +55,7 @@ def render_report(run_dir: Path) -> str:
     if header is None or summary is None:
         raise FileNotFoundError(f"{run_dir} has no run.json and summary.json; run `pnkbench score`")
 
-    parts = [f"# Run `{header['run_id']}`", _header_section(header)]
+    parts = [f"# Run `{header['run_id']}`", _header_section(header, summary.get("scored_by"))]
     parts.append(_answerable_section(summary["answerable"]))
     parts.append(_abstention_section(summary["abstention"], calibration))
     parts.append(_filters_section(summary["filters"]))
@@ -66,7 +66,7 @@ def render_report(run_dir: Path) -> str:
     return "\n\n".join(parts) + "\n"
 
 
-def _header_section(h: Mapping[str, Any]) -> str:
+def _header_section(h: Mapping[str, Any], scored_by: Mapping[str, Any] | None = None) -> str:
     p, s = h["pinakes"], h["settings"]
     emb, rr = s["embedding"], s["rerank"]
     commit = f", commit `{p['commit'][:10]}`" if p.get("commit") else ""
@@ -111,6 +111,17 @@ def _header_section(h: Mapping[str, Any]) -> str:
             f"Python {h['environment']['python']}, torch {h['environment']['torch']}, {h['environment']['platform']}",
         ),
     ]
+    if scored_by:
+        # The searches and the scoring can come from different commits: say which scored this.
+        bench = scored_by["benchmark"]
+        rows.insert(
+            -1,
+            (
+                "Scored by",
+                f"v{bench['version']}, commit `{(bench['commit'] or '?')[:10]}`, {scored_by['scored_utc']}"
+                + (", **working tree was dirty**" if bench["dirty"] else ""),
+            ),
+        )
     return "## What produced this\n\n" + table(["", ""], [list(r) for r in rows])
 
 
@@ -405,6 +416,11 @@ def render_compare(result: Mapping[str, Any]) -> str:
             [
                 ["configuration", a["config"], b["config"]],
                 ["chunking metadata", a["chunking_metadata"], b["chunking_metadata"]],
+                [
+                    "chunking max_tokens",
+                    str(a.get("chunking_max_tokens") or "default"),
+                    str(b.get("chunking_max_tokens") or "default"),
+                ],
                 ["Pinakes", a["pinakes"], b["pinakes"]],
             ],
         )
@@ -424,4 +440,32 @@ def render_compare(result: Mapping[str, Any]) -> str:
         )
         + f"\n\nTop-1 score AUROC, answerable vs null: A {num(result['null_top1_auroc']['a'])}, "
         f"B {num(result['null_top1_auroc']['b'])}.\n"
+        + _set_aside_section(result.get("without_set_aside_articles"))
+    )
+
+
+def _set_aside_section(aside: Mapping[str, Any] | None) -> str:
+    if not aside:
+        return ""
+    rows = [
+        [
+            name.replace("_", " "),
+            pct(v["a_rate"]),
+            pct(v["b_rate"]),
+            str(v["b_found_a_missed"]),
+            str(v["a_found_b_missed"]),
+            pvalue(v["sign_test_p"]),
+        ]
+        for name, v in aside["answerable"].items()
+    ]
+    return (
+        "\n## Read without the articles the two configurations chunk differently\n\n"
+        f"The configurations differ in `max_tokens`, which splits {aside['articles']} articles differently "
+        f"(found by comparing the two indexes' chunk boundaries). The {aside['questions_set_aside']} "
+        "answerable questions whose gold includes one of them are set aside, leaving "
+        f"{aside['questions_kept']}; any difference left is not due to those articles.\n\n"
+        + table(
+            ["measure", "A", "B", "B found, A missed", "A found, B missed", "sign test p"], rows
+        )
+        + "\n"
     )

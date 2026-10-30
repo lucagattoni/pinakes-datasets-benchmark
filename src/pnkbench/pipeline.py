@@ -330,6 +330,12 @@ def score_step(run_dir: Path) -> dict[str, Any]:
         fusion_top_k=header["settings"]["retrieval"]["fusion_top_k"],
         passages_per_search=header["execution"]["passages_per_search"],
     )
+    # A run's header records the commit that searched; this records the commit that scored it, since
+    # the two differ whenever the scorer is fixed after the searches were made.
+    summary["scored_by"] = {
+        "benchmark": {"version": __version__, **git_state()},
+        "scored_utc": utc_now().isoformat(timespec="seconds"),
+    }
     _write_json(run_dir / "summary.json", summary)
     return summary
 
@@ -354,7 +360,18 @@ def report_step(run_dir: Path) -> Path:
 def compare_step(dir_a: Path, dir_b: Path) -> Path:
     from pnkbench import compare, report
 
-    result = compare.compare_runs(dir_a, dir_b, multihop_rag.load())
+    dataset = multihop_rag.load()
+    headers = [json.loads((d / "run.json").read_text(encoding="utf-8")) for d in (dir_a, dir_b)]
+    set_aside: frozenset[int] = frozenset()
+    if headers[0]["config"].get("chunking_max_tokens") != headers[1]["config"].get(
+        "chunking_max_tokens"
+    ):
+        # The configurations chunk differently, so some articles are split differently too.
+        indexes = [pinakes_api.index_path(paths.kb_dir(h["config"]["name"])) for h in headers]
+        set_aside = compare.articles_chunked_differently(
+            indexes[0], indexes[1], path_index(dataset)
+        )
+    result = compare.compare_runs(dir_a, dir_b, dataset, set_aside=set_aside)
     target = paths.runs_dir() / f"compare--{dir_a.name}--{dir_b.name}.md"
     target.write_text(report.render_compare(result), encoding="utf-8")
     _write_json(target.with_suffix(".json"), result)

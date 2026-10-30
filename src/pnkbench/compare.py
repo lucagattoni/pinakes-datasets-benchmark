@@ -15,7 +15,8 @@ them at the top.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+import sqlite3
+from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -79,7 +80,44 @@ def _paired(
     }
 
 
-def compare_runs(dir_a: Path, dir_b: Path, dataset: Dataset) -> dict[str, Any]:
+def chunk_spans(index_db: Path) -> dict[str, frozenset[tuple[int, int]]]:
+    """Each active document's chunk spans, `(char_start, char_end)`, read from a built index."""
+    connection = sqlite3.connect(f"file:{index_db}?mode=ro", uri=True)
+    try:
+        rows = connection.execute(
+            "SELECT d.path, c.char_start, c.char_end FROM chunks c "
+            "JOIN documents d ON d.id = c.doc_id WHERE d.state = 'active'"
+        ).fetchall()
+    finally:
+        connection.close()
+    spans: dict[str, set[tuple[int, int]]] = {}
+    for path, start, end in rows:
+        spans.setdefault(path, set()).add((start, end))
+    return {path: frozenset(found) for path, found in spans.items()}
+
+
+def articles_chunked_differently(
+    index_a: Path, index_b: Path, path_index: Mapping[str, int]
+) -> frozenset[int]:
+    """Articles whose chunk boundaries differ between two built indexes.
+
+    A configuration that changes `max_tokens` re-splits some articles; a paired comparison of the
+    two runs is then confounded for the questions that depend on those articles. This names them,
+    from the indexes themselves, so the comparison can also be read without them.
+    """
+    spans_a, spans_b = chunk_spans(index_a), chunk_spans(index_b)
+    if set(spans_a) != set(spans_b):
+        raise CompareError("the two indexes hold different documents")
+    return frozenset(path_index[path] for path in spans_a if spans_a[path] != spans_b[path])
+
+
+def compare_runs(
+    dir_a: Path,
+    dir_b: Path,
+    dataset: Dataset,
+    *,
+    set_aside: Collection[int] = (),
+) -> dict[str, Any]:
     header_a, rows_a = _load(dir_a)
     header_b, rows_b = _load(dir_b)
     if header_a["dataset"]["sha256"] != header_b["dataset"]["sha256"]:
@@ -122,6 +160,17 @@ def compare_runs(dir_a: Path, dir_b: Path, dataset: Dataset) -> dict[str, Any]:
             for side, rows in (("a", rows_a), ("b", rows_b))
         },
     }
+    if set_aside:
+        aside = frozenset(set_aside)
+        kept = [i for i in answerable if not info[i].gold & aside]
+        result["without_set_aside_articles"] = {
+            "articles": len(aside),
+            "questions_kept": len(kept),
+            "questions_set_aside": len(answerable) - len(kept),
+            "answerable": {
+                name: _paired(kept, rows_a, rows_b, info, fn) for name, fn in _metrics().items()
+            },
+        }
     primary = _metrics()["all_evidence_in_first_8_passages"]
     for qtype in sorted({info[i].qtype for i in answerable}):
         ids = [i for i in answerable if info[i].qtype == qtype]
@@ -135,6 +184,7 @@ def _describe(header: Mapping[str, Any]) -> dict[str, Any]:
         "config": header["config"]["name"],
         "passages_per_search": header["execution"]["passages_per_search"],
         "chunking_metadata": header["config"]["chunking_metadata"],
+        "chunking_max_tokens": header["config"].get("chunking_max_tokens"),
         "pinakes": f"{header['pinakes']['version']} ({header['pinakes']['source']}, "
         f"code {header['pinakes']['code_sha256'][:12]})",
     }
