@@ -1,0 +1,3 @@
+description = "The baseline plus [chunking] metadata = \"prefix\": each chunk's document title is embedded with it. The one change."
+backend = "st"
+chunking_metadata = "prefix"

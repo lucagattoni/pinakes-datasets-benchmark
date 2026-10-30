@@ -1,0 +1,58 @@
+[project]
+name = "pinakes-datasets-benchmark"
+version = "0.1.0"
+description = "Benchmarks Pinakes retrieval against public datasets that ship ground-truth evidence (first: MultiHop-RAG)."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+# Pinakes itself is an extra, never a base dependency: which Pinakes is under test is the
+# experiment's independent variable, and exactly one of the two extras below is installed.
+dependencies = ["ruamel.yaml>=0.19"]
+
+[project.optional-dependencies]
+# The published release. Bump the pin deliberately; every run records what it actually used.
+release = ["pinakes[st]==0.32.8"]
+# A commit of Pinakes' main, pinned in [tool.uv.sources] below. The sentence-transformers extra
+# is the provider the baseline runs on (see README, "Choices that were the user's").
+main = ["pinakes[st]"]
+
+[project.scripts]
+pnkbench = "pnkbench.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff>=0.9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pnkbench"]
+
+[tool.uv]
+# The two extras name the same package from two sources, so they cannot share an environment.
+conflicts = [[{ extra = "release" }, { extra = "main" }]]
+
+[tool.uv.sources]
+pinakes = [
+    { git = "https://github.com/lucagattoni/pinakes", rev = "b1bad6803346f1d3884ad9dbc64570fd0ec57aa4", extra = "main" },
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# The formatter wraps code but never string literals, and the report/README prose is deliberately
+# one string per sentence, so E501 would only ever flag text.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Report tables use an en dash for ranges ("38.9–43.5"); it is the intended character.
+"src/pnkbench/report.py" = ["RUF001", "RUF002"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: needs Pinakes installed and the bge model weights cached; run with -m slow"]
+addopts = "-m 'not slow'"

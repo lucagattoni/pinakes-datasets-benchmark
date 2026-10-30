@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# Third-party data is fetched by `pnkbench fetch`, checked against datasets/<name>/manifest.json, and
+# never committed: the manifest is the record, the files are reproducible.
+/datasets/*/raw/
+
+# Generated knowledge bases (documents, sidecars, index, spend ledger). Rebuilt by `pnkbench build`.
+/build/
+
+# Worktrees live inside the primary checkout; none of them is content.
+.claude/worktrees/

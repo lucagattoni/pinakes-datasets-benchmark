@@ -1,0 +1,3 @@
+description = "Pinakes as a user meets it: sentence-transformers provider, every default, no title in the embedded text."
+backend = "st"
+chunking_metadata = "off"

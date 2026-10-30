@@ -1,0 +1,24 @@
+{
+  "dataset": "multihop-rag",
+  "paper": "https://arxiv.org/abs/2401.15391",
+  "source_repo": "yixuantt/MultiHopRAG",
+  "source_page": "https://huggingface.co/datasets/yixuantt/MultiHopRAG",
+  "revision": "71ac0d0bd1f951d2d6b70311f7d2ae404e1ffa82",
+  "licence": "ODC-By",
+  "licence_evidence": "Hub card front matter at the pinned revision says 'license: odc-by'; the authors' README (github.com/yixuantt/MultiHop-RAG) says 'MultiHop-RAG is licensed under ODC-BY'. The news text itself comes from many publishers whose own terms were not checked.",
+  "values_recorded_from": "the sibling repository langgraph_tests_2026, data/text/text_retrieval/datasets/manifest.json (retrieved 20261010); `pnkbench fetch` re-derives and compares both numbers on every download, so a mismatch stops it",
+  "files": [
+    {
+      "path": "corpus.json",
+      "role": "corpus",
+      "bytes": 6785567,
+      "sha256": "20b61b5ab84de84a927420c5d265b7ec8d859ae49980699958a787ade9e4d28f"
+    },
+    {
+      "path": "MultiHopRAG.json",
+      "role": "queries",
+      "bytes": 5171312,
+      "sha256": "03cfb4926461f868684903aadc8024447bdda5bb3f6804741424cce338515bff"
+    }
+  ]
+}
