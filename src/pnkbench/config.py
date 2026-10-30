@@ -28,10 +28,16 @@ class Config:
     description: str
     backend: str
     chunking_metadata: str
+    chunking_max_tokens: int | None = None
+    """`[chunking] max_tokens`; `None` keeps Pinakes' own default (510).
+
+    `metadata = "prefix"` needs it lowered: Pinakes refuses to build when a chunk plus its document's
+    title would overrun the embedding model's window, and says how far to lower it.
+    """
 
 
 def parse(name: str, raw: dict[str, Any]) -> Config:
-    unknown = set(raw) - {"description", "backend", "chunking_metadata"}
+    unknown = set(raw) - {"description", "backend", "chunking_metadata", "chunking_max_tokens"}
     if unknown:
         raise ConfigError(f"config {name!r}: unknown keys {sorted(unknown)}")
     backend = str(raw.get("backend", "st"))
@@ -43,11 +49,21 @@ def parse(name: str, raw: dict[str, Any]) -> Config:
             f"config {name!r}: chunking_metadata must be one of {CHUNKING_METADATA}, "
             f"not {metadata!r}"
         )
+    max_tokens = raw.get("chunking_max_tokens")
+    if max_tokens is not None and (
+        isinstance(max_tokens, bool)
+        or not isinstance(max_tokens, int)
+        or not 1 <= max_tokens <= 510
+    ):
+        raise ConfigError(
+            f"config {name!r}: chunking_max_tokens must be an integer from 1 to 510, not {max_tokens!r}"
+        )
     return Config(
         name=name,
         description=str(raw.get("description", "")),
         backend=backend,
         chunking_metadata=metadata,
+        chunking_max_tokens=max_tokens,
     )
 
 

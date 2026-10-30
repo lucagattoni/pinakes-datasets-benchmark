@@ -162,6 +162,8 @@ def build_kb(
 
     manifest_file = root / "pinakes.toml"
     text = pin_models(manifest_file.read_text(encoding="utf-8"), load_models())
+    if config.chunking_max_tokens is not None:
+        text = set_key(text, "chunking", "max_tokens", str(config.chunking_max_tokens))
     if config.chunking_metadata != "off":
         text = set_chunking_metadata(text, config.chunking_metadata)
     manifest_file.write_text(text, encoding="utf-8")

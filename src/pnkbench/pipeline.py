@@ -141,6 +141,7 @@ def run(
             "description": config.description,
             "backend": config.backend,
             "chunking_metadata": config.chunking_metadata,
+            "chunking_max_tokens": config.chunking_max_tokens,
         },
         "pinakes": provenance,
         "settings": settings,

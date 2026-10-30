@@ -123,3 +123,28 @@ def test_replacing_thresholds_keeps_the_tables_that_follow_them() -> None:
     assert parsed["retrieval"]["confidence"]["fitted_for"] == "new"
     assert parsed["rerank"]["model"] == "BAAI/bge-reranker-base"
     assert parsed["budget"]["timezone"] == "UTC"
+
+
+def test_a_config_can_lower_max_tokens_and_rejects_nonsense() -> None:
+    from pnkbench import config
+
+    assert config.parse("c", {"chunking_max_tokens": 459}).chunking_max_tokens == 459
+    assert config.parse("c", {}).chunking_max_tokens is None
+    for bad in (0, 511, -3, 459.5, "459", True):
+        with pytest.raises(config.ConfigError, match="chunking_max_tokens"):
+            config.parse("c", {"chunking_max_tokens": bad})
+
+
+def test_the_shipped_prefix_config_asks_for_the_limit_pinakes_requires() -> None:
+    from pnkbench import config
+
+    prefix = config.load("metadata-prefix")
+    assert (prefix.chunking_metadata, prefix.chunking_max_tokens) == ("prefix", 459)
+    assert config.load("baseline").chunking_max_tokens is None
+
+
+def test_max_tokens_is_set_in_the_chunking_table_only() -> None:
+    out = kb.set_key(STAMPED, "chunking", "max_tokens", "459")
+    parsed = tomllib.loads(out)
+    assert parsed["chunking"]["max_tokens"] == 459 and parsed["chunking"]["overlap"] == 64
+    assert out.count("max_tokens") == STAMPED.count("max_tokens")  # replaced, not duplicated

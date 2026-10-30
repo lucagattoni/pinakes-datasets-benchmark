@@ -1,3 +1,8 @@
-description = "The baseline plus [chunking] metadata = \"prefix\": each chunk's document title is embedded with it. The one change."
+description = "The baseline plus [chunking] metadata = \"prefix\" (each chunk's document title is embedded with it) and max_tokens = 459, which prefix requires."
 backend = "st"
 chunking_metadata = "prefix"
+# Pinakes refuses to build with the default 510: a chunk plus its title would overrun the model's
+# 512-token window for 37 of the 609 titles, and its message names 459 as the limit that fits them
+# all (measured 20261030). Lowering it changes how 37 of the baseline's 28,748 chunks (0.129%, in 11
+# articles) are split; `compare` is read with that in mind, and README says so.
+chunking_max_tokens = 459
