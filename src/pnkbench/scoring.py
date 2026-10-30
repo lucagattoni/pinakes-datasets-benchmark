@@ -12,8 +12,10 @@ Two units of k, kept apart because they answer different questions:
 * `@k docs`: the first k *distinct articles* in rank order (passages from one article collapse).
 * `@k passages`: the first k passages, which is what Pinakes' harness and `final_k` count.
 
-Nothing here assumes a score range: reranker scores are raw logits (calibrate.py measured about
--0.28 for a relevant passage and -7.85 for an irrelevant one).
+Nothing here assumes a score range: the scale belongs to the reranker provider. With
+sentence-transformers a single-label cross-encoder is passed through a sigmoid, so scores lie
+between 0 and 1 (this benchmark's rows show exactly that); Pinakes' own calibrate notes record
+values of about -0.28 and -7.85, which is a different scale.
 """
 
 from __future__ import annotations
@@ -26,7 +28,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from pnkbench import items as items_module
-from pnkbench.items import F_CAT_PATH, F_CAT_TAG, FILTER_VARIANTS, FilterSpec, RunItem
+from pnkbench.admission import admits
+from pnkbench.items import F_CAT_PATH, F_CAT_TAG, FILTER_VARIANTS, RunItem
 from pnkbench.multihop_rag import Article, Dataset
 
 K_DOCS = (3, 5, 10)
@@ -359,7 +362,11 @@ def _quantiles(values: Sequence[float]) -> dict[str, float] | None:
     ordered = sorted(values)
 
     def at(fraction: float) -> float:
-        return ordered[round(fraction * (len(ordered) - 1))]
+        # Linear interpolation between the two nearest ranks (numpy's default), so the median of
+        # [1, 2, 3, 4] is 2.5 and not whichever neighbour round-half-to-even happens to land on.
+        position = fraction * (len(ordered) - 1)
+        below, above = math.floor(position), math.ceil(position)
+        return ordered[below] + (ordered[above] - ordered[below]) * (position - below)
 
     return {
         name: at(f)
@@ -376,18 +383,6 @@ def _quantiles(values: Sequence[float]) -> dict[str, float] | None:
 
 
 # --- filters ------------------------------------------------------------------------------
-
-
-def admits(spec: FilterSpec, article: Article, tags: Sequence[str], relpath: str) -> bool:
-    """Whether Pinakes' filter semantics admit `article`: tags AND together, prefix, mtime window."""
-    if any(tag not in tags for tag in spec.tags):
-        return False
-    if spec.path_prefix and not relpath.startswith(spec.path_prefix):
-        return False
-    stamp = article.published_at.timestamp()
-    if spec.modified_after is not None and stamp < spec.modified_after:
-        return False
-    return not (spec.modified_before is not None and stamp > spec.modified_before)
 
 
 def filter_report(
@@ -435,7 +430,7 @@ def filter_report(
         coverage_delta = 0.0
         recall_filtered = 0
         recall_base = 0
-        effects: list[tuple[float, bool, bool]] = []
+        effects: list[tuple[float, str, bool, bool]] = []
         for item in subset:
             row = rows_by_id[item.id]
             base = rows_by_id[item.base_id]
@@ -459,7 +454,7 @@ def filter_report(
             both += f_hit and b_hit
             neither += (not f_hit) and (not b_hit)
             coverage_delta += coverage(f_docs, gold, 10) - coverage(b_docs, gold, 10)
-            effects.append((item.allowed / total, f_hit, b_hit))
+            effects.append((item.allowed / total, item.id, f_hit, b_hit))
         n = len(subset)
         entry: dict[str, Any] = {
             "n": n,
@@ -496,8 +491,15 @@ def filter_report(
     return report
 
 
-def _terciles(effects: Sequence[tuple[float, bool, bool]]) -> list[dict[str, Any]]:
-    ordered = sorted(effects)
+def _terciles(effects: Sequence[tuple[float, str, bool, bool]]) -> list[dict[str, Any]]:
+    """Equal-count thirds by admitted fraction.
+
+    Many items share one fraction (a category admits the same share of the corpus for every
+    question about it), so a cut usually falls inside a tie. Ties are broken by item id and never by
+    outcome: sorting on the outcome too would put the misses into the narrowest third and make
+    the thirds differ by construction.
+    """
+    ordered = sorted(effects, key=lambda effect: (effect[0], effect[1]))
     n = len(ordered)
     out: list[dict[str, Any]] = []
     for name, lo, hi in (
@@ -512,9 +514,9 @@ def _terciles(effects: Sequence[tuple[float, bool, bool]]) -> list[dict[str, Any
             {
                 "tercile": name,
                 "n": len(group),
-                "mean_admitted_fraction": sum(f for f, _, _ in group) / len(group),
-                "all_evidence_at_10_docs_filtered": sum(h for _, h, _ in group) / len(group),
-                "all_evidence_at_10_docs_unfiltered": sum(b for _, _, b in group) / len(group),
+                "mean_admitted_fraction": sum(e[0] for e in group) / len(group),
+                "all_evidence_at_10_docs_filtered": sum(e[2] for e in group) / len(group),
+                "all_evidence_at_10_docs_unfiltered": sum(e[3] for e in group) / len(group),
             }
         )
     return out
@@ -532,7 +534,14 @@ def score_run(
     tags_of: Callable[[Article], Sequence[str]],
     thresholds: Mapping[str, Any] | None,
     fusion_top_k: int,
+    passages_per_search: int,
 ) -> dict[str, Any]:
+    if passages_per_search < max(K_PASSAGES):
+        raise ValueError(
+            f"these rows hold at most {passages_per_search} passages per search, but the report "
+            f"counts the first {max(K_PASSAGES)}: that measure would repeat a shorter one under "
+            "another name. Search with at least that many passages."
+        )
     info = query_info(dataset)
     rows_by_id = {r["id"]: r for r in rows}
     base = [r for r in rows if r["variant"] == items_module.BASE]

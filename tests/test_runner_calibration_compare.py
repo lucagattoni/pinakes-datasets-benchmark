@@ -155,6 +155,7 @@ def _write_run(
     *,
     sha: str = "s",
     status: str = "complete",
+    passages: int = 20,
 ) -> Path:
     run_dir = directory / name
     run_dir.mkdir()
@@ -162,6 +163,7 @@ def _write_run(
         "run_id": name,
         "status": status,
         "dataset": {"sha256": {"corpus.json": sha}},
+        "execution": {"passages_per_search": passages},
         "config": {"name": name, "chunking_metadata": "off"},
         "pinakes": {"version": "0.32.8", "source": "pypi", "code_sha256": "c" * 64},
     }
@@ -368,3 +370,62 @@ def test_git_state_ignores_the_runs_directory_but_notices_other_changes(
     assert pipeline.git_state()["dirty"] is False  # this tool's own output
     (tmp_path / "code.py").write_text("x = 2\n")
     assert pipeline.git_state()["dirty"] is True
+
+
+def test_compare_refuses_runs_that_searched_for_different_numbers_of_passages(
+    tmp_path: Path,
+) -> None:
+    """Measures counted in passages would compare unlike things; this once passed silently."""
+    rows = _base_rows({})
+    eight = _write_run(tmp_path, "eight", rows, passages=8)
+    twenty = _write_run(tmp_path, "twenty", rows, passages=20)
+    with pytest.raises(compare.CompareError, match=r"different numbers of passages \(8 and 20\)"):
+        compare.compare_runs(eight, twenty, make_dataset())
+    assert compare.compare_runs(twenty, twenty, make_dataset())["a"]["passages_per_search"] == 20
+
+
+def test_read_rows_tolerates_only_a_cut_off_last_line(tmp_path: Path) -> None:
+    path = tmp_path / "rows.jsonl"
+    good = [json.dumps(_row(name, [])) for name in ("a", "b", "c")]
+    path.write_text("\n".join([good[0], "{not json", good[2]]) + "\n")
+    with pytest.raises(RuntimeError, match=r"rows\.jsonl:2: a row is damaged"):
+        runner.read_rows(path)
+    path.write_text(
+        "\n".join([good[0], good[1], good[2][:10]])
+    )  # the kill landed in the last write
+    assert [r["id"] for r in runner.read_rows(path)] == ["a", "b"]
+    path.write_text(good[0] + "\n\n" + good[1] + "\n")  # blank lines are not damage
+    assert [r["id"] for r in runner.read_rows(path)] == ["a", "b"]
+
+
+def test_a_resume_after_a_cut_off_write_loses_no_row(tmp_path: Path) -> None:
+    """Appending to an unterminated line glued the next row onto it and dropped both."""
+    path = tmp_path / "rows.jsonl"
+    path.write_text(json.dumps(_row("a", [])) + "\n" + json.dumps(_row("b", []))[:20])
+    runner.repair_tail(path)
+    with path.open("a") as sink:
+        sink.write(json.dumps(_row("d", [])) + "\n")
+    assert [r["id"] for r in runner.read_rows(path)] == ["a", "d"]  # b was cut off, so b runs again
+
+
+def test_a_complete_row_missing_only_its_newline_is_kept(tmp_path: Path) -> None:
+    path = tmp_path / "rows.jsonl"
+    path.write_text(json.dumps(_row("a", [])) + "\n" + json.dumps(_row("b", [])))
+    runner.repair_tail(path)
+    assert path.read_text().endswith("}\n")
+    with path.open("a") as sink:
+        sink.write(json.dumps(_row("c", [])) + "\n")
+    assert [r["id"] for r in runner.read_rows(path)] == ["a", "b", "c"]
+
+
+def test_repair_tail_leaves_a_clean_or_absent_file_alone(tmp_path: Path) -> None:
+    runner.repair_tail(tmp_path / "missing.jsonl")
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("")
+    runner.repair_tail(empty)
+    assert empty.read_text() == ""
+    clean = tmp_path / "clean.jsonl"
+    clean.write_text(json.dumps(_row("a", [])) + "\n")
+    before = clean.read_bytes()
+    runner.repair_tail(clean)
+    assert clean.read_bytes() == before

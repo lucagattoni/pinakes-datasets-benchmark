@@ -414,3 +414,99 @@ def test_false_abstain_counts_a_hit_anywhere_in_the_first_five_passages() -> Non
     for side in ("eval", "fit"):
         sample = report["labels"][side]["false_abstain_pinakes_definition"]
         assert sample["n"] > 0 and sample["successes"] == sample["n"]
+
+
+# --- fixes made after an independent review -------------------------------------------------
+
+
+def test_quantiles_interpolate_between_ranks() -> None:
+    q = scoring._quantiles([1.0, 2.0, 3.0, 4.0])
+    assert q["median"] == pytest.approx(2.5)  # round-half-to-even used to give 3.0
+    assert q["min"] == 1.0 and q["max"] == 4.0
+    assert q["p25"] == pytest.approx(1.75) and q["p75"] == pytest.approx(3.25)
+    assert scoring._quantiles([1.0, 2.0])["median"] == pytest.approx(1.5)
+    assert scoring._quantiles([7.0])["p90"] == 7.0
+    assert scoring._quantiles([]) is None
+    eleven = scoring._quantiles([float(n) for n in range(11)])
+    assert eleven["p10"] == pytest.approx(1.0) and eleven["p90"] == pytest.approx(9.0)
+
+
+def test_terciles_are_cut_by_id_inside_a_tie_never_by_outcome() -> None:
+    """Sorting on the outcome as well put every miss into the narrowest third of a tied group."""
+    # nine items with one admitted fraction; found in the middle three by id, missed elsewhere
+    effects = [(0.28, f"i{n}", n in (3, 4, 5), n in (3, 4, 5)) for n in range(9)]
+    terciles = {t["tercile"]: t for t in scoring._terciles(effects)}
+    assert [t["n"] for t in terciles.values()] == [3, 3, 3]
+    assert terciles["narrowest"]["all_evidence_at_10_docs_filtered"] == 0.0
+    assert terciles["middle"]["all_evidence_at_10_docs_filtered"] == 1.0
+    assert terciles["widest"]["all_evidence_at_10_docs_filtered"] == 0.0
+    shuffled = [effects[i] for i in (7, 2, 5, 0, 8, 3, 1, 6, 4)]
+    assert scoring._terciles(shuffled) == scoring._terciles(effects)
+
+
+def test_terciles_order_by_admitted_fraction_first() -> None:
+    effects = [(0.9, "a", True, False), (0.1, "b", False, False), (0.5, "c", True, True)]
+    names = {t["tercile"]: t["mean_admitted_fraction"] for t in scoring._terciles(effects)}
+    assert names == {"narrowest": 0.1, "middle": 0.5, "widest": 0.9}
+
+
+def _toy_rows_and_items():
+    dataset, _, derived, _ = _filter_setup()
+    return dataset, derived, list(_all_rows(dataset, derived, considered=20).values())
+
+
+def test_score_run_refuses_rows_too_short_for_the_longest_window() -> None:
+    dataset, derived, rows = _toy_rows_and_items()
+    kwargs = {
+        "relpath_of": layout.doc_relpath,
+        "tags_of": layout.tags_for,
+        "thresholds": None,
+        "fusion_top_k": 20,
+    }
+    with pytest.raises(ValueError, match="at most 8 passages"):
+        scoring.score_run(rows, derived, dataset, passages_per_search=8, **kwargs)
+    assert (
+        scoring.score_run(rows, derived, dataset, passages_per_search=20, **kwargs)["counts"][
+            "base"
+        ]
+        == 10
+    )
+
+
+def test_score_run_counts_what_the_toy_dataset_contains() -> None:
+    dataset, derived, rows = _toy_rows_and_items()
+    out = scoring.score_run(
+        rows,
+        derived,
+        dataset,
+        relpath_of=layout.doc_relpath,
+        tags_of=layout.tags_for,
+        thresholds=None,
+        fusion_top_k=20,
+        passages_per_search=20,
+    )
+    counts = out["counts"]
+    assert (counts["base"], counts["answerable"], counts["null"]) == (10, 8, 2)
+    assert counts["rows"] == len(derived)
+    # q4 (articles 0, 4, 8, 11) and q9 (0, 11) span the first and the last day, so a publication
+    # window around their gold admits the whole corpus and no f-date variant exists for them:
+    # 8 answerable queries - 2 = 6. The other 6 answerable queries each get one.
+    assert counts["by_variant"]["base"] == 10 and counts["by_variant"]["f-date"] == 6
+    assert out["answerable"]["all"]["n"] == 8
+    eval_answerable = [
+        q for q in dataset.queries if q.answerable and items.split_of(q.id) == items.EVAL
+    ]
+    # the pinned split table in test_layout_and_items puts 0, 1, 4, 8 and 9 in the eval half (7 is null)
+    assert out["answerable"]["eval_half"]["n"] == len(eval_answerable) == 5
+    assert {k: v["n"] for k, v in out["answerable"]["by_question_type"].items()} == {
+        "comparison_query": 4,
+        "inference_query": 2,
+        "temporal_query": 2,
+    }
+    # gold sizes by hand: q1 {1,2,3} is 3; q4 {0,4,8,11} is 4; q3 lists article 5 twice so {5,8} is 2;
+    # the other five are pairs
+    assert {k: v["n"] for k, v in out["answerable"]["by_gold_size"].items()} == {
+        "2": 6,
+        "3": 1,
+        "4": 1,
+    }

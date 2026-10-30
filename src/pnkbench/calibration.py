@@ -165,6 +165,13 @@ def calibrate(
     )
 
     parity = parity_check(kb_root, items, index, rows_by_id, fit, limit=limit)
+    if parity["label_mismatches"]:
+        raise CalibrationError(
+            f"Pinakes' own confidence label differed from ours on {parity['label_mismatches']} of "
+            f"{parity['checked']} repeated searches (e.g. {parity['mismatch_ids']}). The thresholds "
+            "are in the manifest, but nothing computed from them is to be trusted until the "
+            "two rules are reconciled."
+        )
     counts = {
         "fit_null": sum(1 for i in selected if not info[i.base_id].answerable),
         "fit_answerable_used": sum(1 for i in selected if info[i.base_id].answerable),

@@ -102,16 +102,49 @@ def to_payload(item: RunItem) -> dict[str, Any]:
 
 
 def read_rows(path: Path) -> list[dict[str, Any]]:
-    """Every complete row in `path`; a trailing partial line (a killed write) is ignored."""
+    """Every row in `path`.
+
+    Only a cut-off *last* line (a write killed half way) is tolerated. Damage anywhere else is an
+    error: silently skipping a row would make every later count describe a smaller run than the
+    one that happened.
+    """
     if not path.exists():
         return []
+    lines = path.read_text(encoding="utf-8").split("\n")
     rows: list[dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
         try:
             rows.append(json.loads(line))
         except json.JSONDecodeError:
-            continue
+            if number == len(lines):
+                continue
+            raise RuntimeError(
+                f"{path}:{number}: a row is damaged. Only a cut-off last line is tolerated."
+            ) from None
     return rows
+
+
+def repair_tail(path: Path) -> None:
+    """Make `path` safe to append to after a kill that cut the last write short.
+
+    A file this module wrote ends with a newline. If it does not, appending would glue the next
+    row onto the cut-off one and lose both: a complete row missing only its newline keeps its
+    newline, and a cut-off one is dropped, so its item simply runs again.
+    """
+    if not path.exists():
+        return
+    data = path.read_bytes()
+    if not data or data.endswith(b"\n"):
+        return
+    cut = data.rfind(b"\n") + 1
+    try:
+        json.loads(data[cut:])
+    except json.JSONDecodeError:
+        path.write_bytes(data[:cut])
+    else:
+        path.write_bytes(data + b"\n")
 
 
 def run_items(
@@ -127,6 +160,7 @@ def run_items(
 ) -> dict[str, Any]:
     """Append rows for every item not already in `out`. Returns timing and counts."""
     out.parent.mkdir(parents=True, exist_ok=True)
+    repair_tail(out)
     done = {row["id"] for row in read_rows(out)}
     pending = [to_payload(item) for item in items if item.id not in done]
     log(f"{len(done)} rows already present; {len(pending)} to run with {workers} worker(s)")

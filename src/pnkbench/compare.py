@@ -84,6 +84,15 @@ def compare_runs(dir_a: Path, dir_b: Path, dataset: Dataset) -> dict[str, Any]:
     header_b, rows_b = _load(dir_b)
     if header_a["dataset"]["sha256"] != header_b["dataset"]["sha256"]:
         raise CompareError("the runs used different dataset files")
+    limits = (
+        header_a["execution"]["passages_per_search"],
+        header_b["execution"]["passages_per_search"],
+    )
+    if limits[0] != limits[1]:
+        raise CompareError(
+            f"the runs searched for different numbers of passages ({limits[0]} and {limits[1]}), "
+            "so every measure counted in passages would compare unlike things"
+        )
     info = scoring.query_info(dataset)
     base_a = {i for i, r in rows_a.items() if r["variant"] == items_module.BASE}
     base_b = {i for i, r in rows_b.items() if r["variant"] == items_module.BASE}
@@ -124,6 +133,7 @@ def _describe(header: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "run_id": header["run_id"],
         "config": header["config"]["name"],
+        "passages_per_search": header["execution"]["passages_per_search"],
         "chunking_metadata": header["config"]["chunking_metadata"],
         "pinakes": f"{header['pinakes']['version']} ({header['pinakes']['source']}, "
         f"code {header['pinakes']['code_sha256'][:12]})",

@@ -1,7 +1,7 @@
 """The things a run asks Pinakes: one base item per dataset query, plus oracle-filter variants.
 
 **A filter variant is an oracle, and says so.** It is derived from the gold articles' own metadata,
-so the filter *cannot* exclude a gold article (checked, not assumed). That makes it a test of the
+so the filter *cannot* exclude a gold article (checked for every variant as it is created). That makes it a test of the
 filter machinery (is it applied before retrieval, does it admit exactly what it should, do two
 spellings of one filter agree), not of whether a user could have guessed the filter. The dataset
 ships no filter questions; these are derived, and every report labels them so.
@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time
 
 from pnkbench import layout
-from pnkbench.multihop_rag import Dataset
+from pnkbench.admission import FilterSpec, admits
+from pnkbench.multihop_rag import Article, Dataset
 
 BASE = "base"
 F_CAT_TAG = "f-cat-tag"
@@ -37,22 +38,6 @@ FIT, EVAL = "fit", "eval"
 CALIBRATION_ANSWERABLE_CAP = 150
 """How many answerable questions go to `pinakes.calibrate`. It prints their score range and fits
 nothing from them: both thresholds come from the unanswerable scores alone (calibrate.py)."""
-
-
-@dataclass(frozen=True, slots=True)
-class FilterSpec:
-    tags: tuple[str, ...] = ()
-    path_prefix: str | None = None
-    modified_after: float | None = None
-    modified_before: float | None = None
-
-    def any_set(self) -> bool:
-        return bool(
-            self.tags
-            or self.path_prefix
-            or self.modified_after is not None
-            or self.modified_before is not None
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +85,23 @@ def derive_items(dataset: Dataset) -> list[RunItem]:
     stamps = sorted(article.published_at.timestamp() for article in articles)
 
     items: list[RunItem] = []
+
+    def add_variant(
+        query_id: str,
+        variant: str,
+        text: str,
+        spec: FilterSpec,
+        allowed: int,
+        gold: tuple[Article, ...],
+    ) -> None:
+        """Create a filter variant only after proving it admits every gold article."""
+        for article in gold:
+            if not admits(spec, article, layout.tags_for(article), layout.doc_relpath(article)):
+                raise ValueError(
+                    f"{query_id}: the {variant} filter excludes gold article {article.index}"
+                )
+        items.append(RunItem(item_id(query_id, variant), query_id, variant, text, spec, allowed))
+
     for query in dataset.queries:
         items.append(RunItem(query.id, query.id, BASE, query.text, FilterSpec(), total))
         if not query.answerable:
@@ -111,41 +113,18 @@ def derive_items(dataset: Dataset) -> list[RunItem]:
             (category,) = categories
             allowed = by_category[category]
             if allowed < total:
-                items.append(
-                    RunItem(
-                        item_id(query.id, F_CAT_TAG),
-                        query.id,
-                        F_CAT_TAG,
-                        query.text,
-                        FilterSpec(tags=(category,)),
-                        allowed,
-                    )
-                )
-                items.append(
-                    RunItem(
-                        item_id(query.id, F_CAT_PATH),
-                        query.id,
-                        F_CAT_PATH,
-                        query.text,
-                        FilterSpec(path_prefix=layout.category_prefix(gold[0])),
-                        allowed,
-                    )
-                )
+                spec = FilterSpec(tags=(category,))
+                add_variant(query.id, F_CAT_TAG, query.text, spec, allowed, gold)
+                spec = FilterSpec(path_prefix=layout.category_prefix(gold[0]))
+                add_variant(query.id, F_CAT_PATH, query.text, spec, allowed, gold)
 
         sources = {layout.source_tag(a) for a in gold}
         if len(sources) == 1:
             (source,) = sources
             allowed = by_source[source]
             if allowed < total:
-                items.append(
-                    RunItem(
-                        item_id(query.id, F_SRC_TAG),
-                        query.id,
-                        F_SRC_TAG,
-                        query.text,
-                        FilterSpec(tags=(source,)),
-                        allowed,
-                    )
+                add_variant(
+                    query.id, F_SRC_TAG, query.text, FilterSpec(tags=(source,)), allowed, gold
                 )
 
         after, before = _day_bounds(
@@ -153,17 +132,6 @@ def derive_items(dataset: Dataset) -> list[RunItem]:
         )
         admitted = bisect.bisect_right(stamps, before) - bisect.bisect_left(stamps, after)
         if admitted < total:
-            for article in gold:
-                if not after <= article.published_at.timestamp() <= before:
-                    raise ValueError(f"{query.id}: the date window excludes a gold article")
-            items.append(
-                RunItem(
-                    item_id(query.id, F_DATE),
-                    query.id,
-                    F_DATE,
-                    query.text,
-                    FilterSpec(modified_after=after, modified_before=before),
-                    admitted,
-                )
-            )
+            spec = FilterSpec(modified_after=after, modified_before=before)
+            add_variant(query.id, F_DATE, query.text, spec, admitted, gold)
     return items

@@ -131,7 +131,7 @@ def test_item_id_for_base_is_the_query_id(bad: str) -> None:
 
 def test_split_assignments_are_pinned() -> None:
     """The documented split counts depend on these exact assignments; flipping the rule moves them."""
-    assert {f"mhr-{i:04d}": items.split_of(f"mhr-{i:04d}") for i in range(8)} == {
+    assert {f"mhr-{i:04d}": items.split_of(f"mhr-{i:04d}") for i in range(10)} == {
         "mhr-0000": "eval",
         "mhr-0001": "eval",
         "mhr-0002": "fit",
@@ -140,6 +140,8 @@ def test_split_assignments_are_pinned() -> None:
         "mhr-0005": "fit",
         "mhr-0006": "fit",
         "mhr-0007": "eval",
+        "mhr-0008": "eval",
+        "mhr-0009": "eval",
     }
 
 
@@ -168,3 +170,19 @@ def test_category_prefix_ends_with_a_slash_so_it_cannot_match_a_longer_name() ->
     prefix = layout.category_prefix(make_articles()[0])
     assert prefix.endswith("/")
     assert not "docs/sports-extra/x.txt".startswith(prefix)
+
+
+def test_a_filter_that_would_exclude_a_gold_article_is_never_created(monkeypatch) -> None:
+    """The dataset README says every variant is checked as it is created; this is that check."""
+    monkeypatch.setattr(layout, "category_prefix", lambda article: "docs/nowhere/")
+    with pytest.raises(ValueError, match="f-cat-path filter excludes gold article"):
+        items.derive_items(make_dataset())
+
+
+def test_a_tag_filter_that_does_not_match_its_gold_is_refused(monkeypatch) -> None:
+    real = layout.tags_for
+    monkeypatch.setattr(
+        layout, "tags_for", lambda article: ("unrelated",) if article.index == 0 else real(article)
+    )
+    with pytest.raises(ValueError, match="excludes gold article 0"):
+        items.derive_items(make_dataset())

@@ -239,3 +239,61 @@ def test_the_whole_pipeline_runs_on_a_dataset_laid_out_like_the_real_one(
         "report.md",
     ):
         assert (run_dir / name).stat().st_size > 0, name
+
+
+def _toy_repo(tmp_path, monkeypatch) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    shutil.copytree(REAL_CONFIGS, root / "configs")
+    monkeypatch.setenv(paths.ROOT_ENV, str(root))
+    _write_toy_dataset_like_the_real_one(root)
+    return root
+
+
+def test_a_resume_keeps_the_run_history_and_refuses_what_changed(tmp_path, monkeypatch) -> None:
+    import json
+
+    _toy_repo(tmp_path, monkeypatch)
+    pipeline.build("baseline", log=lambda m: None)
+    run_dir = pipeline.run("baseline", workers=1, log=lambda m: None)
+    first = json.loads((run_dir / "run.json").read_text())
+
+    assert pipeline.run("baseline", workers=1, resume=run_dir, log=lambda m: None) == run_dir
+    second = json.loads((run_dir / "run.json").read_text())
+    assert second["started_utc"] == first["started_utc"]  # the original start is kept
+    assert len(second["execution"]["resumed_utc"]) == 1
+    assert second["execution"]["earlier_wall_seconds"] == first["execution"]["wall_seconds"]
+    assert (second["execution"]["ran"], second["execution"]["skipped"]) == (
+        0,
+        first["items"]["total"],
+    )
+
+    with pytest.raises(RuntimeError, match=r"cannot resume: sample differ"):
+        pipeline.run("baseline", workers=1, sample=3, resume=run_dir, log=lambda m: None)
+
+    manifest_file = paths.kb_dir("baseline") / "pinakes.toml"
+    manifest_file.write_text(kb.set_key(manifest_file.read_text(), "retrieval", "final_k", "9"))
+    with pytest.raises(RuntimeError, match=r"cannot resume: settings"):
+        pipeline.run("baseline", workers=1, resume=run_dir, log=lambda m: None)
+
+
+def test_calibration_stops_when_pinakes_and_we_disagree_about_a_label(
+    built, tmp_path, monkeypatch
+) -> None:
+    from pnkbench import calibration
+
+    dataset, _, handle = built
+    index = pipeline.path_index(dataset)
+    derived = items.derive_items(dataset)
+    rows = [runner.run_one(handle, index, runner.to_payload(i), 20) for i in derived]
+    disagreement = {
+        "checked": 10,
+        "label_mismatches": 1,
+        "mismatch_ids": ["mhr-0001"],
+        "max_abs_top1_difference_vs_recorded": 0.0,
+    }
+    monkeypatch.setattr(calibration, "parity_check", lambda *a, **k: disagreement)
+    with pytest.raises(calibration.CalibrationError, match=r"differed from ours on 1 of 10"):
+        calibration.calibrate(
+            paths.kb_dir("baseline"), tmp_path, derived, dataset, rows, index, limit=20
+        )

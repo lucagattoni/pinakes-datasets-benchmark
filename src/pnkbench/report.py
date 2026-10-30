@@ -26,6 +26,13 @@ def prop(entry: Mapping[str, Any]) -> str:
     return f"{pct(entry['value'])} ({100 * low:.1f}–{100 * high:.1f}, n={entry['n']})"
 
 
+def pvalue(value: float | None) -> str:
+    """A p-value as a reader should see it: tiny ones as a bound, never as a misleading 0.0000."""
+    if value is None:
+        return "n/a"
+    return "<0.0001" if value < 0.0001 else f"{value:.4f}"
+
+
 def num(value: float | None, digits: int = 3) -> str:
     return "n/a" if value is None else f"{value:.{digits}f}"
 
@@ -234,7 +241,8 @@ def _abstention_section(ab: Mapping[str, Any], calibration: Mapping[str, Any] | 
         "their wording (see [the dataset notes](../../datasets/multihop-rag/README.md#caveats)), so a score "
         "gap may be reading style. The bold row keeps only null queries with none of these tells:\n\n"
         + table(["tell", "answerable queries", "null queries"], tell_rows)
-        + "\n\nTop-1 rerank score (raw logits):\n\n"
+        + "\n\nTop-1 rerank score. The scale belongs to the provider: sentence-transformers applies a "
+        "sigmoid to a single-label cross-encoder, so these are probabilities between 0 and 1:\n\n"
         + table(["", "min", "p10", "p25", "median", "p75", "p90", "max"], q_rows)
     )
     if ab["labels"] is None:
@@ -299,7 +307,7 @@ def _filters_section(f: Mapping[str, Any]) -> str:
                 prop(v["all_evidence_at_10_docs_unfiltered"]),
                 prop(v["all_evidence_at_10_docs_filtered"]),
                 f"+{p['filtered_better']} / -{p['filtered_worse']}",
-                num(p["sign_test_p"], 4),
+                pvalue(p["sign_test_p"]),
             ]
         )
     eq = f["equivalence_tag_vs_path_prefix"]
@@ -323,8 +331,8 @@ def _filters_section(f: Mapping[str, Any]) -> str:
             rows,
         )
         + f"\n\nTag and path-prefix spellings of the same category: {eq['pairs']} pairs, "
-        f"**{eq['mismatches']} returned different passages or scores** "
-        + (f"(e.g. {eq['mismatch_ids']})" if eq["mismatches"] else "")
+        f"**{eq['mismatches']} returned different passages or scores**"
+        + (f" (e.g. {eq['mismatch_ids']})" if eq["mismatches"] else "")
         + "."
     )
 
@@ -374,7 +382,7 @@ def render_compare(result: Mapping[str, Any]) -> str:
             pct(v["b_rate"]),
             str(v["b_found_a_missed"]),
             str(v["a_found_b_missed"]),
-            num(v["sign_test_p"], 4),
+            pvalue(v["sign_test_p"]),
         ]
         for name, v in result["answerable"].items()
     ]
@@ -386,7 +394,7 @@ def render_compare(result: Mapping[str, Any]) -> str:
             pct(v["b_rate"]),
             str(v["b_found_a_missed"]),
             str(v["a_found_b_missed"]),
-            num(v["sign_test_p"], 4),
+            pvalue(v["sign_test_p"]),
         ]
         for t, v in result["by_question_type"].items()
     ]

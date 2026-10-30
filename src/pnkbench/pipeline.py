@@ -102,6 +102,7 @@ def run(
         raise RuntimeError(f"no KB at {kb_root}; run `pnkbench build --config {config.name}`")
 
     provenance = pinakes_api.provenance()
+    previous: dict[str, Any] | None = None
     if resume is not None:
         run_dir = resume
         previous = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
@@ -128,6 +129,21 @@ def run(
         }
     finally:
         handle.close()
+
+    if previous is not None:
+        changed = [
+            name
+            for name, was, now in (
+                ("settings (models, chunking, retrieval)", previous["settings"], settings),
+                ("dataset files", previous["dataset"]["sha256"], dict(dataset.sha256)),
+                ("sample", previous["execution"]["sample_base_queries"], sample),
+            )
+            if was != now
+        ]
+        if changed:
+            raise RuntimeError(
+                f"cannot resume: {', '.join(changed)} differ from the run being continued"
+            )
 
     import torch
 
@@ -173,6 +189,18 @@ def run(
             },
         },
     }
+    if previous is not None:
+        # The header is rewritten on a resume, so what the earlier sessions recorded is carried
+        # over: the original start, each resume, and the wall time they spent.
+        earlier = previous["execution"]
+        header["started_utc"] = previous["started_utc"]
+        header["execution"]["resumed_utc"] = [
+            *earlier.get("resumed_utc", []),
+            utc_now().isoformat(timespec="seconds"),
+        ]
+        header["execution"]["earlier_wall_seconds"] = round(
+            earlier.get("earlier_wall_seconds", 0) + earlier.get("wall_seconds", 0), 1
+        )
     _write_json(run_dir / "run.json", header)
 
     started = time.monotonic()
@@ -300,6 +328,7 @@ def score_step(run_dir: Path) -> dict[str, Any]:
         tags_of=layout.tags_for,
         thresholds=thresholds,
         fusion_top_k=header["settings"]["retrieval"]["fusion_top_k"],
+        passages_per_search=header["execution"]["passages_per_search"],
     )
     _write_json(run_dir / "summary.json", summary)
     return summary
