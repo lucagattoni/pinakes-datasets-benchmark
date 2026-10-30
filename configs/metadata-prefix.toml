@@ -3,6 +3,6 @@ backend = "st"
 chunking_metadata = "prefix"
 # Pinakes refuses to build with the default 510: a chunk plus its title would overrun the model's
 # 512-token window for 37 of the 609 documents, and its message names 459 as the limit that fits them
-# all (measured 20261030). Lowering it changes how 37 of the baseline's 28,748 chunks (0.129%, in 11
+# all (the first build, without this key, was refused; delete the key to see the message). Lowering it changes how 37 of the baseline's 28,748 chunks (0.129%, in 11
 # articles) are split; `compare` is read with that in mind, and README says so.
 chunking_max_tokens = 459

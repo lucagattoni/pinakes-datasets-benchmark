@@ -3,8 +3,9 @@
 # Pinakes records no revision unless the manifest names one (`ModelInfo.revision` is None), so
 # without this a run could silently use whatever `main` had become. Pinning changes no behaviour:
 # the same files load. It makes Pinakes itself refuse a mismatch, and lets a result file say which
-# weights produced it. Both shas were checked against the Hub's `main` on 20261030 and equalled the
-# snapshots already cached. `pnkbench build` fails if Pinakes' stamped model ids differ from these.
+# weights produced it. Both shas were checked against the Hub's `main` and equalled the snapshots
+# already cached before the first build, and again on 20261030 21:35 UTC. `pnkbench build` fails if
+# Pinakes' stamped model ids differ from these.
 
 [embedding]
 model = "BAAI/bge-small-en-v1.5"

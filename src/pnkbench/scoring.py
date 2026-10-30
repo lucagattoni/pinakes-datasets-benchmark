@@ -56,7 +56,7 @@ class QueryInfo:
     tells: tuple[str, ...] = ()
     """Surface features of the wording that separate null queries from the rest.
 
-    Measured on the full dataset (20261030): 47.8% of null queries mention a "letter" against 0% of
+    Counted over the full dataset (every run's report regenerates the counts): 47.8% of null queries mention a "letter" against 0% of
     answerable ones, 61.1% contain "Considering the information" against 0.1%, and 70% name no
     news outlet against 0.6%. A score that separates the two groups may be reading these, not the
     content, so the abstention report also gives the AUROC on null queries with none of them.
