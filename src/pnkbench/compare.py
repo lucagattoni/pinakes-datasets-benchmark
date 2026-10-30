@@ -87,16 +87,20 @@ def compare_runs(dir_a: Path, dir_b: Path, dataset: Dataset) -> dict[str, Any]:
     info = scoring.query_info(dataset)
     base_a = {i for i, r in rows_a.items() if r["variant"] == items_module.BASE}
     base_b = {i for i, r in rows_b.items() if r["variant"] == items_module.BASE}
-    if base_a != base_b:
-        raise CompareError(
-            f"the runs do not cover the same questions ({len(base_a)} vs {len(base_b)} base queries)"
-        )
-    answerable = sorted(i for i in base_a if info[i].answerable)
-    null = sorted(i for i in base_a if not info[i].answerable)
+    common = sorted(base_a & base_b)
+    if not common:
+        raise CompareError("the runs share no question, so there is nothing to pair")
+    answerable = [i for i in common if info[i].answerable]
+    null = [i for i in common if not info[i].answerable]
 
     result: dict[str, Any] = {
         "a": _describe(header_a),
         "b": _describe(header_b),
+        "questions": {"a": len(base_a), "b": len(base_b), "compared": len(common)},
+        "identical_searches": {
+            "of": len(common),
+            "same_passages_and_scores": sum(1 for i in common if rows_a[i]["p"] == rows_b[i]["p"]),
+        },
         "answerable": {
             name: _paired(answerable, rows_a, rows_b, info, fn) for name, fn in _metrics().items()
         },

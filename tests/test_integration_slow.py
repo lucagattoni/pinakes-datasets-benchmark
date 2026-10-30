@@ -99,3 +99,143 @@ def test_the_date_window_uses_the_publication_time_set_on_each_file(built) -> No
     index = pipeline.path_index(dataset)
     assert {index[path] for path, _ in outcome.passages} <= {2, 3, 4}
     assert {index[path] for path, _ in outcome.passages} == {2, 3, 4}
+
+
+def test_calibration_runs_end_to_end_and_pinakes_agrees_with_our_labels(built, tmp_path) -> None:
+    """The whole stage: pinakes.calibrate on the fit half, re-derivation, the manifest write, and
+    Pinakes' own `confidence` labels against ours on searches repeated with the thresholds in."""
+    import tomllib
+
+    from pnkbench import calibration
+
+    dataset, _, handle = built
+    index = pipeline.path_index(dataset)
+    derived = items.derive_items(dataset)
+    rows = [runner.run_one(handle, index, runner.to_payload(i), 20) for i in derived]
+    kb_root = paths.kb_dir("baseline")
+    result = calibration.calibrate(kb_root, tmp_path, derived, dataset, rows, index, limit=20)
+
+    assert result["cross_check_against_stored_scores"]["agrees"] is True
+    assert (
+        result["cross_check_against_stored_scores"]["null_scores"] == 1
+    )  # one null query is in the fit half
+    parity = result["parity_with_pinakes_labels"]
+    assert parity["checked"] == 10 and parity["label_mismatches"] == 0
+    assert parity["max_abs_top1_difference_vs_recorded"] < 1e-4
+    written = tomllib.loads((kb_root / "pinakes.toml").read_text(encoding="utf-8"))["retrieval"]
+    assert written["confidence"]["fitted_for"] == result["thresholds"]["fitted_for"]
+    assert result["thresholds"]["fitted_for"].startswith("BAAI/bge-reranker-base@")
+    assert (tmp_path / "calibration-questions.yaml").exists()
+
+
+def _write_toy_dataset_like_the_real_one(root: Path) -> None:
+    """The toy dataset as raw files plus a manifest, so the production loader reads it."""
+    import hashlib
+    import json
+
+    from pnkbench import multihop_rag as mh
+
+    dataset = make_dataset()
+    corpus = [
+        {
+            "title": a.title,
+            "author": a.author,
+            "source": a.source,
+            "category": a.category,
+            "url": a.url,
+            "published_at": a.published_at.isoformat(),
+            "body": a.body,
+        }
+        for a in dataset.articles
+    ]
+    by_title = dataset.article_by_title()
+    queries = [
+        {
+            "query": q.text,
+            "answer": q.answer,
+            "question_type": q.qtype,
+            "evidence_list": [
+                {
+                    "title": e.title,
+                    "url": e.url,
+                    "fact": e.fact,
+                    "author": None,
+                    "source": by_title[e.title].source,
+                    "category": by_title[e.title].category,
+                    "published_at": by_title[e.title].published_at.isoformat(),
+                }
+                for e in q.evidence
+            ],
+        }
+        for q in dataset.queries
+    ]
+    folder = root / "datasets" / mh.DATASET
+    (folder / "raw").mkdir(parents=True)
+    files = []
+    for name, role, payload in (
+        ("corpus.json", "corpus", corpus),
+        ("MultiHopRAG.json", "queries", queries),
+    ):
+        data = json.dumps(payload).encode()
+        (folder / "raw" / name).write_bytes(data)
+        files.append(
+            {
+                "path": name,
+                "role": role,
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        )
+    (folder / "manifest.json").write_text(
+        json.dumps(
+            {"source_repo": "owner/toy", "revision": "a" * 40, "licence": "n/a", "files": files}
+        )
+    )
+
+
+def test_the_whole_pipeline_runs_on_a_dataset_laid_out_like_the_real_one(
+    tmp_path, monkeypatch
+) -> None:
+    """build -> run -> calibrate -> score -> harness -> report, through the same functions `pnkbench all` calls."""
+    import json
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    shutil.copytree(REAL_CONFIGS, root / "configs")
+    monkeypatch.setenv(paths.ROOT_ENV, str(root))
+    _write_toy_dataset_like_the_real_one(root)
+
+    run_dir = pipeline.run_all("baseline", workers=1, log=lambda m: None)
+
+    header = json.loads((run_dir / "run.json").read_text())
+    assert header["status"] == "complete" and header["items"]["total"] == len(
+        items.derive_items(make_dataset())
+    )
+    assert header["pinakes"]["source"] == "pypi" and len(header["pinakes"]["code_sha256"]) == 64
+    assert header["settings"]["embedding"]["revision"] == "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+    assert header["reproducibility"]["ranking_mismatches"] == 0
+    summary = json.loads((run_dir / "summary.json").read_text())
+    assert summary["counts"]["base"] == 10 and summary["counts"]["null"] == 2
+    assert summary["abstention"]["labels"] is not None
+    for variant in items.FILTER_VARIANTS:
+        assert summary["filters"][variant]["soundness_violations"] == 0
+    harness_result = json.loads((run_dir / "harness.json").read_text())
+    assert harness_result["metrics"]["questions"] == harness_result["questions"]
+    report = (run_dir / "report.md").read_text()
+    for heading in (
+        "## What produced this",
+        "## Answerable questions",
+        "## Abstention",
+        "## Filters",
+        "## Latency",
+    ):
+        assert heading in report, heading
+    for name in (
+        "run.json",
+        "rows.jsonl",
+        "summary.json",
+        "calibration.json",
+        "harness.json",
+        "report.md",
+    ):
+        assert (run_dir / name).stat().st_size > 0, name

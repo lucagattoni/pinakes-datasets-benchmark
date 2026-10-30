@@ -231,7 +231,7 @@ def _abstention_section(ab: Mapping[str, Any], calibration: Mapping[str, Any] | 
         "random null question's (0.5 = no separation, 1.0 = perfect). It needs no thresholds.\n\n"
         + table(["comparison", "AUROC (95% bootstrap interval; n)"], rows)
         + "\n\n**Read the first rows with care.** The null queries differ from the answerable ones in "
-        "their wording (see [the dataset notes](datasets/multihop-rag/README.md#caveats)), so a score "
+        "their wording (see [the dataset notes](../../datasets/multihop-rag/README.md#caveats)), so a score "
         "gap may be reading style. The bold row keeps only null queries with none of these tells:\n\n"
         + table(["tell", "answerable queries", "null queries"], tell_rows)
         + "\n\nTop-1 rerank score (raw logits):\n\n"
@@ -307,7 +307,7 @@ def _filters_section(f: Mapping[str, Any]) -> str:
         "## Filters (oracle variants)\n\n"
         "Each variant filters on the gold articles' own metadata, so it cannot exclude a gold "
         "article. It tests the filter machinery, not whether a user would have chosen the filter "
-        "([how they are derived](datasets/multihop-rag/README.md#filter-variants)).\n\n"
+        "([how they are derived](../../datasets/multihop-rag/README.md#filter-variants)).\n\n"
         + table(
             [
                 "variant",
@@ -359,7 +359,7 @@ def _reading_section() -> str:
     return (
         "## Reading this\n\n"
         "The dataset's own caveats (LLM-generated queries, templated null questions, yes/no "
-        "answers) are in [its README](datasets/multihop-rag/README.md#caveats). Pinakes chunks "
+        "answers) are in [its README](../../datasets/multihop-rag/README.md#caveats). Pinakes chunks "
         f"plain text by paragraph by design ([DESIGN §4.6]({PINAKES_DOCS}/DESIGN.md)), which is why "
         "twenty passages can come from few articles."
     )
@@ -400,7 +400,11 @@ def render_compare(result: Mapping[str, Any]) -> str:
                 ["Pinakes", a["pinakes"], b["pinakes"]],
             ],
         )
-        + '\n\nPaired on the same answerable questions. "B found, A missed" counts questions; the '
+        + f"\n\nQuestions: A has {result['questions']['a']}, B has {result['questions']['b']}; compared on "
+        f"the {result['questions']['compared']} they share. Searches that returned exactly the same "
+        f"passages in the same order with the same scores: "
+        f"{result['identical_searches']['same_passages_and_scores']} of {result['identical_searches']['of']}."
+        '\n\nPaired on the same answerable questions. "B found, A missed" counts questions; the '
         "sign test is exact, two-sided, on those discordant pairs.\n\n"
         + table(
             ["measure", "A", "B", "B found, A missed", "A found, B missed", "sign test p"], rows

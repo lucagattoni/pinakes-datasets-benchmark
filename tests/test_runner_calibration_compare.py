@@ -205,8 +205,45 @@ def test_compare_refuses_runs_that_do_not_measure_the_same_thing(tmp_path: Path)
         compare.compare_runs(a, _write_run(tmp_path, "b", rows, sha="other"), make_dataset())
     with pytest.raises(compare.CompareError, match="not a complete run"):
         compare.compare_runs(a, _write_run(tmp_path, "c", rows, status="running"), make_dataset())
-    with pytest.raises(compare.CompareError, match="same questions"):
-        compare.compare_runs(a, _write_run(tmp_path, "d", rows[:-1]), make_dataset())
+    stranger = [dict(r, id="zzz", base_id="zzz") for r in rows]
+    with pytest.raises(compare.CompareError, match="share no question"):
+        compare.compare_runs(a, _write_run(tmp_path, "d", stranger), make_dataset())
+
+
+def test_compare_pairs_a_sample_run_with_a_full_run_on_their_common_questions(
+    tmp_path: Path,
+) -> None:
+    rows = _base_rows({})
+    full = _write_run(tmp_path, "full", rows)
+    sample = _write_run(tmp_path, "sample", rows[:6])
+    result = compare.compare_runs(full, sample, make_dataset())
+    assert result["questions"] == {"a": 10, "b": 6, "compared": 6}
+    assert result["identical_searches"] == {"of": 6, "same_passages_and_scores": 6}
+
+
+def test_identical_searches_counts_only_exact_matches(tmp_path: Path) -> None:
+    rows = _base_rows({})
+    shifted = [
+        dict(r, p=[[p[0], p[1] + 0.001] for p in r["p"]]) if r["id"] == "mhr-0000" else r
+        for r in rows
+    ]
+    result = compare.compare_runs(
+        _write_run(tmp_path, "a", rows), _write_run(tmp_path, "b", shifted), make_dataset()
+    )
+    assert result["identical_searches"] == {"of": 10, "same_passages_and_scores": 9}
+
+
+def test_the_comparison_report_states_the_overlap_and_the_identical_searches(
+    tmp_path: Path,
+) -> None:
+    from pnkbench import report
+
+    rows = _base_rows({})
+    result = compare.compare_runs(
+        _write_run(tmp_path, "a", rows), _write_run(tmp_path, "b", rows[:6]), make_dataset()
+    )
+    text = report.render_compare(result)
+    assert "compared on the 6 they share" in text and "same scores: 6 of 6" in text
 
 
 # --- parity with Pinakes' own code --------------------------------------------------------
