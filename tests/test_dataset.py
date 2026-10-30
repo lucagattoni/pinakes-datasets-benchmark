@@ -206,3 +206,28 @@ def test_load_names_a_malformed_timestamp(tmp_path: Path) -> None:
     manifest = _write(tmp_path, corpus, queries)
     with pytest.raises(mh.DatasetError, match="not an ISO timestamp"):
         mh.load(tmp_path, manifest)
+
+
+def test_real_data_yields_the_item_and_split_counts_the_dataset_readme_states() -> None:
+    from collections import Counter
+
+    from pnkbench import items, paths
+
+    if not (paths.raw_data_dir(mh.DATASET) / "corpus.json").exists():
+        pytest.skip("run `pnkbench fetch` first")
+    dataset = mh.load()
+    derived = items.derive_items(dataset)
+    assert Counter(i.variant for i in derived) == {
+        "base": 2556,
+        "f-date": 2255,
+        "f-cat-tag": 1544,
+        "f-cat-path": 1544,
+        "f-src-tag": 598,
+    }
+    sides = Counter((items.split_of(q.id), q.answerable) for q in dataset.queries)
+    assert sides == {
+        ("fit", True): 1115,
+        ("fit", False): 147,
+        ("eval", True): 1140,
+        ("eval", False): 154,
+    }

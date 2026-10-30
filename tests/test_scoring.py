@@ -187,14 +187,14 @@ def _filter_setup(fusion_top_k: int = 3):
     return dataset, info, derived, fusion_top_k
 
 
-def _all_rows(dataset, derived, *, mutate=None):
+def _all_rows(dataset, derived, *, mutate=None, considered=3):
     """Base rows that find their gold; variant rows restricted to what the filter admits."""
     info = scoring.query_info(dataset)
     out = {}
     for item in derived:
         gold = sorted(info[item.base_id].gold)
         if item.variant == items.BASE:
-            out[item.id] = row(item.id, [[g, 1.0] for g in gold], considered=3)
+            out[item.id] = row(item.id, [[g, 1.0] for g in gold], considered=considered)
         else:
             admitted = [
                 a.index
@@ -206,7 +206,7 @@ def _all_rows(dataset, derived, *, mutate=None):
                 [[g, 1.0] for g in gold if g in admitted],
                 variant=item.variant,
                 base=item.base_id,
-                considered=3,
+                considered=considered,
             )
     if mutate:
         mutate(out)
@@ -332,3 +332,85 @@ def test_abstention_report_gives_the_style_controlled_auroc_and_counts() -> None
     assert report["style_tells"][scoring.TELL_NO_OUTLET]["null"] == 2
     controlled = report["auroc_null_without_style_tells_vs_answerable"]
     assert controlled["auroc"] is None and controlled["n_neg"] == 0
+
+
+# --- gaps a mutation pass found (each test below killed a mutant that had survived) ---------
+
+
+def test_the_passage_window_is_exactly_k() -> None:
+    gold = frozenset({1, 3})
+    r = row("a", [[1, 0.9], [2, 0.8], [3, 0.7]])
+    assert not scoring.found_all_passages(
+        r, gold, 2
+    )  # the third passage is outside a window of two
+    assert scoring.found_all_passages(r, gold, 3)
+
+
+def test_ndcg_ideal_is_limited_by_k_when_there_are_more_gold_articles_than_slots() -> None:
+    assert scoring.ndcg([1, 2, 3], frozenset({1, 2, 3}), 2) == pytest.approx(1.0)
+
+
+def test_top1_is_the_first_passage_as_pinakes_ranks_it() -> None:
+    assert scoring.top1_score(row("a", [[1, 5.0], [2, 9.0], [3, 1.0]])) == 5.0
+    assert scoring.top1_score(row("a", [])) is None
+
+
+def test_the_shortfall_check_applies_when_exactly_as_many_articles_are_admitted_as_the_pool() -> (
+    None
+):
+    dataset, info, derived, _ = _filter_setup()
+
+    def starve(rows):  # `sports` admits exactly 4 articles
+        rows["mhr-0000:f-cat-tag"]["considered"] = 3
+
+    rows = _all_rows(dataset, derived, mutate=starve, considered=4)
+    report = scoring.filter_report(
+        rows,
+        derived,
+        dataset,
+        info,
+        relpath_of=layout.doc_relpath,
+        tags_of=layout.tags_for,
+        fusion_top_k=4,
+    )
+    assert report[items.F_CAT_TAG]["applied_before_retrieval_violations"] == 1
+
+
+def test_paired_filter_comparison_counts_each_direction_separately() -> None:
+    dataset, info, derived, k = _filter_setup()
+
+    def base_misses(rows):
+        rows["mhr-0000"]["p"] = [[9, 0.1]]  # article 9 is nobody's gold
+
+    def filtered_misses(rows):
+        rows["mhr-0000:f-cat-tag"]["p"] = [[9, 0.1]]
+
+    for mutate, better, worse in ((base_misses, 1, 0), (filtered_misses, 0, 1)):
+        rows = _all_rows(dataset, derived, mutate=mutate)
+        paired = scoring.filter_report(
+            rows,
+            derived,
+            dataset,
+            info,
+            relpath_of=layout.doc_relpath,
+            tags_of=layout.tags_for,
+            fusion_top_k=k,
+        )[items.F_CAT_TAG]["paired"]
+        assert (paired["filtered_better"], paired["filtered_worse"]) == (better, worse)
+
+
+def test_false_abstain_counts_a_hit_anywhere_in_the_first_five_passages() -> None:
+    dataset = make_dataset()
+    info = scoring.query_info(dataset)
+    rows = []
+    for q in dataset.queries:
+        if (
+            q.answerable
+        ):  # three filler passages from an article that is nobody's gold, then the gold
+            rows.append(row(q.id, [[9, -9.0], [9, -9.1], [9, -9.2], [min(info[q.id].gold), -9.3]]))
+        else:
+            rows.append(row(q.id, [[9, -9.0]]))
+    report = scoring.abstention_report(rows, info, {"low_below": -3.0, "high_above": 1.0})
+    for side in ("eval", "fit"):
+        sample = report["labels"][side]["false_abstain_pinakes_definition"]
+        assert sample["n"] > 0 and sample["successes"] == sample["n"]

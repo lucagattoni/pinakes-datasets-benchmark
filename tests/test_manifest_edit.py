@@ -111,3 +111,15 @@ def test_thresholds_leave_the_other_tables_alone() -> None:
     parsed, before = tomllib.loads(out), tomllib.loads(STAMPED)
     for table in ("kb", "sources", "embedding", "chunking", "rerank", "budget"):
         assert parsed[table] == before[table]
+
+
+def test_replacing_thresholds_keeps_the_tables_that_follow_them() -> None:
+    with_block = STAMPED.replace(
+        "[rerank]",
+        '[retrieval.confidence]\nfitted_for = "old"\nlow_below = 1.0\nhigh_above = 2.0\n\n[rerank]',
+    )
+    out = kb.set_confidence_thresholds(with_block, fitted_for="new", low_below=-1.0, high_above=0.5)
+    parsed = tomllib.loads(out)
+    assert parsed["retrieval"]["confidence"]["fitted_for"] == "new"
+    assert parsed["rerank"]["model"] == "BAAI/bge-reranker-base"
+    assert parsed["budget"]["timezone"] == "UTC"

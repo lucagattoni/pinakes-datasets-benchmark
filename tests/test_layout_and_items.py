@@ -127,3 +127,44 @@ def test_gold_lists_a_repeated_article_once() -> None:
 def test_item_id_for_base_is_the_query_id(bad: str) -> None:
     assert items.item_id("mhr-0001" + bad, items.BASE) == "mhr-0001" + bad
     assert items.item_id("mhr-0001", items.F_DATE) == "mhr-0001:f-date"
+
+
+def test_split_assignments_are_pinned() -> None:
+    """The documented split counts depend on these exact assignments; flipping the rule moves them."""
+    assert {f"mhr-{i:04d}": items.split_of(f"mhr-{i:04d}") for i in range(8)} == {
+        "mhr-0000": "eval",
+        "mhr-0001": "eval",
+        "mhr-0002": "fit",
+        "mhr-0003": "fit",
+        "mhr-0004": "eval",
+        "mhr-0005": "fit",
+        "mhr-0006": "fit",
+        "mhr-0007": "eval",
+    }
+
+
+def test_no_category_or_source_variant_when_the_filter_would_admit_everything() -> None:
+    from dataclasses import replace
+
+    dataset = make_dataset()
+    flat = replace(
+        dataset,
+        articles=tuple(replace(a, category="sports", source="The Verge") for a in dataset.articles),
+    )
+    variants = {i.variant for i in items.derive_items(flat)}
+    assert items.F_CAT_TAG not in variants and items.F_CAT_PATH not in variants
+    assert items.F_SRC_TAG not in variants
+
+
+def test_path_ends_with_eight_hex_digits_of_the_url_hash() -> None:
+    import hashlib
+
+    article = make_articles()[0]
+    digest = hashlib.sha1(article.url.encode(), usedforsecurity=False).hexdigest()[:8]
+    assert layout.doc_relpath(article).endswith(f"-{digest}.txt")
+
+
+def test_category_prefix_ends_with_a_slash_so_it_cannot_match_a_longer_name() -> None:
+    prefix = layout.category_prefix(make_articles()[0])
+    assert prefix.endswith("/")
+    assert not "docs/sports-extra/x.txt".startswith(prefix)
