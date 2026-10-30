@@ -5,6 +5,7 @@ description = "Benchmarks Pinakes retrieval against public datasets that ship gr
 readme = "README.md"
 requires-python = ">=3.13"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 # Pinakes itself is an extra, never a base dependency: which Pinakes is under test is the
 # experiment's independent variable, and exactly one of the two extras below is installed.
 dependencies = ["ruamel.yaml>=0.19"]

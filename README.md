@@ -6,7 +6,10 @@ evidence, asks it every question the dataset contains, and scores what comes bac
 **MultiHop-RAG**. Every result records which Pinakes, which models, which dataset revision and which
 commit of this repository produced it.
 
-<!-- RESULTS -->
+## Results
+
+The first full run (the baseline: all 8,497 searches, then calibration and Pinakes' own harness) was still in progress
+when this repository was made public. This section is filled in from `runs/` when it completes.
 
 ## The two things being measured
 
@@ -75,7 +78,7 @@ A run lives in `runs/<UTC time>-<config>-<pinakes>/`: `run.json` (everything tha
 
 ## Choices
 
-Three were the owner's, asked before building: **Pinakes 0.32.8 as the baseline with a switch for `main`**;
+Three were the maintainer's, asked before building: **Pinakes 0.32.8 as the baseline with a switch for `main`**;
 **the `sentence-transformers` provider** (not `fastembed`); and **all four extras** (Pinakes' harness
 export, the metadata-prefix variant, filter questions derived from metadata, confidence calibration).
 
@@ -135,6 +138,12 @@ installed Pinakes code, and `compare` states both builds at the top.
 | `src/pnkbench/` | the tool |
 | `datasets/multihop-rag/` | the dataset's README and `manifest.json`; `raw/` is fetched and git-ignored |
 | `configs/` | the configurations (`baseline`, `metadata-prefix`) and the model pins |
-| `runs/` | committed results, one directory per run, and the paired comparisons |
+| `runs/` | committed results, one directory per run, and the paired comparisons; the two files carrying the dataset's question text are regenerated and git-ignored |
 | `tests/` | unit tests on a synthetic corpus, parity tests against Pinakes' own code, and the slow end-to-end tests |
 | `build/` | generated knowledge bases; git-ignored, safe to delete |
+
+## Licence
+
+The code is licensed under the [Apache License 2.0](LICENSE), as Pinakes is. The dataset is not redistributed here: it is
+fetched from its authors under ODC-By 1.0 (see [its notes](datasets/multihop-rag/README.md#caveats) for attribution and
+what is and is not committed), and the models are downloaded from the Hugging Face Hub under their own licences.

@@ -9,6 +9,11 @@ __pycache__/
 # never committed: the manifest is the record, the files are reproducible.
 /datasets/*/raw/
 
+# The dataset's own question text, written into a run directory by the calibrate and harness steps.
+# Third-party content, regenerated on demand: what a run commits is numbers, article indices and ids.
+/runs/*/calibration-questions.yaml
+/runs/*/harness/questions.yaml
+
 # Generated knowledge bases (documents, sidecars, index, spend ledger). Rebuilt by `pnkbench build`.
 /build/
 

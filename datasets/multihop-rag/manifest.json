@@ -6,7 +6,7 @@
   "revision": "71ac0d0bd1f951d2d6b70311f7d2ae404e1ffa82",
   "licence": "ODC-By",
   "licence_evidence": "Hub card front matter at the pinned revision says 'license: odc-by'; the authors' README (github.com/yixuantt/MultiHop-RAG) says 'MultiHop-RAG is licensed under ODC-BY'. The news text itself comes from many publishers whose own terms were not checked.",
-  "values_recorded_from": "the sibling repository langgraph_tests_2026, data/text/text_retrieval/datasets/manifest.json (retrieved 20261010); `pnkbench fetch` re-derives and compares both numbers on every download, so a mismatch stops it",
+  "values_recorded_from": "an earlier independent fetch of the same two files (retrieved 20261010); `pnkbench fetch` re-derives and compares both numbers on every download, so a mismatch stops it",
   "files": [
     {
       "path": "corpus.json",

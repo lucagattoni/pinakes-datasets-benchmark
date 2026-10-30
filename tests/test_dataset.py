@@ -179,7 +179,7 @@ def test_the_committed_manifest_names_a_full_revision_and_both_checksums() -> No
 
 def test_real_data_still_has_the_published_shape() -> None:
     """Skipped unless `pnkbench fetch` has run. The counts are the ones the paper's data had when
-    the manifest was written (the sibling repo measured them 20261010; this repo re-derived them)."""
+    the manifest was written (first measured 20261010; this repo re-derived them)."""
     from pnkbench import paths
 
     if not (paths.raw_data_dir(mh.DATASET) / "corpus.json").exists():

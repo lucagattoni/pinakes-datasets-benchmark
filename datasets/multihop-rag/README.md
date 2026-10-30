@@ -23,9 +23,8 @@ is repeated here, so it cannot drift.
 
 `pnkbench fetch` downloads at that revision into `raw/` (git-ignored) and compares what arrives with
 the manifest. A mismatch stops it and leaves no partial file; a file already on disk is verified, never
-replaced. `pnkbench` re-checks both files on every load. The checksums were first recorded from a
-sibling repository's earlier fetch (20261010) and this repository's own fresh download reproduced
-them (20261030).
+replaced. `pnkbench` re-checks both files on every load. The checksums were first recorded by an
+earlier fetch (20261010) and this repository's own fresh download reproduced them (20261030).
 
 ## What loading checks
 
@@ -112,5 +111,9 @@ number is read. Measures that need no thresholds are given on all queries.
 - **The embedding model predates the corpus.** The earliest article is from 26 September 2023; the
   FlagEmbedding README dates `bge-*-v1.5` to 12 September 2023. The reranker's training data and date were not
   established, and the models' training data is unstated by their authors.
-- **Licence.** ODC-By covers the dataset; the news text comes from many publishers whose own terms were not checked.
-  The articles are therefore never committed here.
+- **Licence and attribution.** The dataset is licensed ODC-By 1.0 (evidence in [`manifest.json`](manifest.json)); the news text comes from
+  many publishers whose own terms were not checked. The articles are therefore never committed here, and neither is the
+  dataset's question text: the files that carry it (`calibration-questions.yaml`, `harness/questions.yaml`) are regenerated
+  by the pipeline and git-ignored. What is committed from a run is numbers, article indices and ids. This repository
+  contains information derived from MultiHop-RAG (Tang and Yang, 2024, [arXiv:2401.15391](https://arxiv.org/abs/2401.15391)),
+  made available under the [Open Data Commons Attribution License 1.0](https://opendatacommons.org/licenses/by/1-0/).
