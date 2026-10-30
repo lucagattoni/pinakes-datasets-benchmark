@@ -36,8 +36,8 @@ No standard benchmark for metadata filters turned up; the filter variants here a
 
 ## Adding one
 
-The pipeline is not generic yet: `pipeline`, `items`, `layout`, `scoring`, `compare`, `kb` and `harness` import
-[`multihop_rag.py`](../src/pnkbench/multihop_rag.py) directly, and its `Dataset`, `Article` and `Query` are the seam a
+The pipeline is not generic yet: most modules in `src/pnkbench/` import
+[`multihop_rag.py`](../src/pnkbench/multihop_rag.py) directly (ten did when this was written), and its `Dataset`, `Article` and `Query` are the seam a
 second dataset would implement. A dataset also needs the same four things MultiHop-RAG has: a pinned revision with
 checksums that `fetch` enforces, loader invariants that fail loudly, a rule for turning a document into a file (path,
 sidecar title and tags, modification time), and a README in its own folder.
