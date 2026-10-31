@@ -129,6 +129,11 @@ def load_onnx_pins(directory: Path | None = None) -> OnnxPins:
         for key in ("source", "revision", "file", "sha256"):
             if key not in table:
                 raise ConfigError(f"models.toml [fastembed.{section}] has no {key!r}")
+        for key in ("source", "file"):
+            if not isinstance(table[key], str) or not table[key]:
+                raise ConfigError(
+                    f"models.toml [fastembed.{section}] {key} must be a non-empty string"
+                )
         revision, digest = str(table["revision"]), str(table["sha256"])
         if len(revision) != 40 or set(revision) - set("0123456789abcdef"):
             raise ConfigError(
@@ -136,9 +141,7 @@ def load_onnx_pins(directory: Path | None = None) -> OnnxPins:
             )
         if len(digest) != 64 or set(digest) - set("0123456789abcdef"):
             raise ConfigError(f"models.toml [fastembed.{section}] sha256 must be 64 hex digits")
-        return OnnxPin(
-            source=str(table["source"]), revision=revision, file=str(table["file"]), sha256=digest
-        )
+        return OnnxPin(source=table["source"], revision=revision, file=table["file"], sha256=digest)
 
     return OnnxPins(embedding=pin("embedding"), rerank=pin("rerank"))
 

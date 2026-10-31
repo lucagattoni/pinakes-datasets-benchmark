@@ -995,17 +995,38 @@ def test_an_empty_pin_table_is_a_table_with_no_keys_not_a_missing_table(tmp_path
         load_onnx_pins(_models_toml(tmp_path, _table("embedding") + "[fastembed.rerank]\n"))
 
 
+@pytest.mark.parametrize("value", ["3", "1.5", "true", '"x"', "[1]"])
 @pytest.mark.parametrize("section", ["embedding", "rerank"])
-def test_a_pin_that_is_not_a_table_is_a_config_error(tmp_path: Path, section: str) -> None:
+def test_a_pin_that_is_any_non_table_value_is_refused(
+    tmp_path: Path, section: str, value: str
+) -> None:
     other = "rerank" if section == "embedding" else "embedding"
-    text = f"[fastembed]\n{section} = 3\n" + _table(other)  # a plain value where a table belongs
+    text = f"[fastembed]\n{section} = {value}\n" + _table(other)  # a value where a table belongs
     with pytest.raises(ConfigError, match=rf"no \[fastembed\.{section}\] table"):
         load_onnx_pins(_models_toml(tmp_path, text))
 
 
-def test_a_fastembed_entry_that_is_not_a_table_is_a_config_error(tmp_path: Path) -> None:
+@pytest.mark.parametrize("value", ["3", "1.5", "true", '"x"', "[1]"])
+def test_a_fastembed_entry_that_is_any_non_table_value_is_refused(
+    tmp_path: Path, value: str
+) -> None:
     with pytest.raises(ConfigError, match=r"no \[fastembed\.embedding\] table"):
-        load_onnx_pins(_models_toml(tmp_path, "fastembed = 3\n"))
+        load_onnx_pins(_models_toml(tmp_path, f"fastembed = {value}\n"))
+
+
+@pytest.mark.parametrize("key", ["source", "file"])
+@pytest.mark.parametrize("value", ['""', "3", "true", '["a"]'])
+def test_a_source_or_file_that_is_not_a_non_empty_string_is_refused_at_load(
+    tmp_path: Path, key: str, value: str
+) -> None:
+    body = "".join(
+        f"{key} = {value}\n" if line.startswith(key) else line + "\n"
+        for line in _table("embedding").splitlines()
+    )
+    with pytest.raises(
+        ConfigError, match=rf"\[fastembed\.embedding\] {key} must be a non-empty string"
+    ):
+        load_onnx_pins(_models_toml(tmp_path, body + _table("rerank")))
 
 
 def test_the_provider_stop_says_which_provider_the_backend_should_give() -> None:
@@ -1113,18 +1134,52 @@ def test_a_resume_refuses_when_the_earlier_header_recorded_no_files(
         pipeline.run("baseline-fastembed", workers=1, resume=run_dir, log=lambda m: None)
 
 
-def test_a_refused_light_run_writes_no_header_and_can_be_retried_at_once(
+def test_a_refused_light_run_writes_no_header_and_can_be_retried_in_the_same_minute(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     found = _light_world(tmp_path, monkeypatch)
+    # the fake clock moves a minute per reading, so without a fixed id the retry could never collide
+    monkeypatch.setattr(pipeline, "new_run_id", lambda name, provenance: "same-minute")
     good = dict(found["embedding"])
     found["embedding"]["sha256"] = "0" * 64
     with pytest.raises(kb.BuildError):
         pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
     assert list(paths.runs_dir().glob("*/run.json")) == []
-    found["embedding"] = good  # the retry, in the same minute as the refusal
+    found["embedding"] = good
     run_dir = pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+    assert run_dir.name == "same-minute"
     assert _header_of(run_dir)["status"] == "complete"
+
+
+def test_a_fresh_run_creates_the_runs_directory_if_it_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _light_world(tmp_path, monkeypatch)
+    shutil.rmtree(paths.runs_dir())
+    run_dir = pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+    assert (run_dir / "run.json").is_file()
+
+
+def test_a_run_closes_the_kb_when_reading_the_files_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _light_world(tmp_path, monkeypatch)
+    closed: list[int] = []
+    handle = SimpleNamespace(
+        manifest=SimpleNamespace(retrieval=SimpleNamespace(fusion_top_k=20)),
+        backend=None,
+        reranker=None,
+        close=lambda: closed.append(1),
+    )
+    monkeypatch.setattr(pinakes_api, "open_kb", lambda root: handle)
+
+    def moved(h: object) -> object:
+        raise pinakes_api.InterfaceError("fastembed moved its internals")
+
+    monkeypatch.setattr(pinakes_api, "loaded_artefacts", moved)
+    with pytest.raises(pinakes_api.InterfaceError):
+        pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+    assert closed == [1]
 
 
 def test_two_fresh_runs_in_the_same_minute_do_not_share_a_directory(
