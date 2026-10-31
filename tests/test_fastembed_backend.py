@@ -1324,17 +1324,24 @@ def test_the_ranking_is_compared_without_the_scores_and_in_two_windows(
 ) -> None:
     swapped_tail = [0, 1, 2, 3, 4, 5, 6, 7, 9, 8]  # the last two exchanged: outside the first 8
     swapped_head = [1, 0, 2, 3, 4, 5, 6, 7, 8, 9]  # the first two exchanged: inside it
+    swapped_edge = [0, 1, 2, 3, 4, 5, 6, 8, 7, 9]  # the eighth and ninth: the eighth is inside
     identical = _ranking_compare(
         tmp_path,
         monkeypatch,
-        {"mhr-0007": swapped_tail, "mhr-0008": swapped_head, "mhr-0003": list(range(9))},
+        {
+            "mhr-0007": swapped_tail,
+            "mhr-0008": swapped_head,
+            "mhr-0004": swapped_edge,
+            "mhr-0003": list(range(9)),
+        },
     )["identical_searches"]
     assert identical["of"] == 10
     assert identical["same_passages_and_scores"] == 0  # the scales differ in every search
-    # whole pool: all but 0003 (nine passages, not ten), 0007 and 0008 -> 7
-    assert identical["same_articles_in_same_order"] == 7
-    # first 8 passages: only 0008 differs there; the other two differ beyond the eighth -> 9
-    assert identical["same_articles_in_first_8_passages"] == 9
+    # whole pool: all but 0003 (nine passages, not ten), 0004, 0007 and 0008 -> 6
+    assert identical["same_articles_in_same_order"] == 6
+    # first 8 passages: 0004 (its eighth passage moved) and 0008 differ there; 0003 and 0007
+    # differ only beyond the eighth -> 8
+    assert identical["same_articles_in_first_8_passages"] == 8
 
 
 def test_identical_rankings_on_different_scales_count_as_the_same_ranking(
