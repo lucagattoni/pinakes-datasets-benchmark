@@ -220,7 +220,12 @@ def test_compare_pairs_a_sample_run_with_a_full_run_on_their_common_questions(
     sample = _write_run(tmp_path, "sample", rows[:6])
     result = compare.compare_runs(full, sample, make_dataset())
     assert result["questions"] == {"a": 10, "b": 6, "compared": 6}
-    assert result["identical_searches"] == {"of": 6, "same_passages_and_scores": 6}
+    assert result["identical_searches"] == {
+        "of": 6,
+        "same_passages_and_scores": 6,
+        "same_articles_in_same_order": 6,
+        "same_articles_in_first_8_passages": 6,
+    }
 
 
 def test_identical_searches_counts_only_exact_matches(tmp_path: Path) -> None:
@@ -232,7 +237,13 @@ def test_identical_searches_counts_only_exact_matches(tmp_path: Path) -> None:
     result = compare.compare_runs(
         _write_run(tmp_path, "a", rows), _write_run(tmp_path, "b", shifted), make_dataset()
     )
-    assert result["identical_searches"] == {"of": 10, "same_passages_and_scores": 9}
+    # one score moved by 0.001, so one search is not exact, but every search ranks the same articles
+    assert result["identical_searches"] == {
+        "of": 10,
+        "same_passages_and_scores": 9,
+        "same_articles_in_same_order": 10,
+        "same_articles_in_first_8_passages": 10,
+    }
 
 
 def test_the_comparison_report_states_the_overlap_and_the_identical_searches(

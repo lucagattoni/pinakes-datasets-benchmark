@@ -147,6 +147,14 @@ def compare_runs(
         "identical_searches": {
             "of": len(common),
             "same_passages_and_scores": sum(1 for i in common if rows_a[i]["p"] == rows_b[i]["p"]),
+            # Scores sit on the reranker provider's own scale, so across providers "same scores" is
+            # never true; these ask the question that still has an answer: the same ranking?
+            "same_articles_in_same_order": sum(
+                1 for i in common if _articles(rows_a[i]) == _articles(rows_b[i])
+            ),
+            "same_articles_in_first_8_passages": sum(
+                1 for i in common if _articles(rows_a[i])[:8] == _articles(rows_b[i])[:8]
+            ),
         },
         "answerable": {
             name: _paired(answerable, rows_a, rows_b, info, fn) for name, fn in _metrics().items()
@@ -179,6 +187,11 @@ def compare_runs(
     if thresholds[0] is not None and thresholds[1] is not None:
         result["threshold_transfer"] = _transfer(common, rows_a, rows_b, info, *thresholds)
     return result
+
+
+def _articles(row: Row) -> list[int]:
+    """The article index of each returned passage, in rank order, without the scores."""
+    return [passage[0] for passage in row["p"]]
 
 
 def _thresholds(run_dir: Path) -> dict[str, float] | None:

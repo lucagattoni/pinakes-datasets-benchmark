@@ -1290,3 +1290,79 @@ def test_release_light_tracks_release_and_conflicts_with_the_other_extras() -> N
     assert extras["release-light"] == [extras["release"][0].replace("[st]", "[light]")]
     conflict = {entry["extra"] for entry in meta["tool"]["uv"]["conflicts"][0]}
     assert conflict == {"release", "release-light", "main"}
+
+
+# --- compare: do two providers rank the same articles, whatever the scale of their scores --------
+
+
+def _pool(scale: float, order: list[int] | None = None) -> list[list[Any]]:
+    """Ten passages from articles 0..9 (or in `order`), scored on a scale of the caller's choosing."""
+    return [[article, scale * (10 - rank)] for rank, article in enumerate(order or range(10))]
+
+
+def _ranking_rows(
+    variants: dict[str, list[int]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """A's pools are articles 0..9 in order; B's differ as `variants` says, and always in score."""
+    rows_a = [_row(f"mhr-{i:04d}", _pool(0.1)) for i in range(10)]
+    rows_b = [_row(f"mhr-{i:04d}", _pool(1.0, variants.get(f"mhr-{i:04d}"))) for i in range(10)]
+    return rows_a, rows_b
+
+
+def _ranking_compare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variants: dict[str, list[int]]
+) -> dict[str, Any]:
+    _toy_repo(tmp_path, monkeypatch)
+    rows_a, rows_b = _ranking_rows(variants)
+    run_a = _finished_run("run-a", "baseline", None, rows_a)
+    run_b = _finished_run("run-b", "baseline-fastembed", None, rows_b)
+    return compare.compare_runs(run_a, run_b, make_dataset())
+
+
+def test_the_ranking_is_compared_without_the_scores_and_in_two_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    swapped_tail = [0, 1, 2, 3, 4, 5, 6, 7, 9, 8]  # the last two exchanged: outside the first 8
+    swapped_head = [1, 0, 2, 3, 4, 5, 6, 7, 8, 9]  # the first two exchanged: inside it
+    identical = _ranking_compare(
+        tmp_path,
+        monkeypatch,
+        {"mhr-0007": swapped_tail, "mhr-0008": swapped_head, "mhr-0003": list(range(9))},
+    )["identical_searches"]
+    assert identical["of"] == 10
+    assert identical["same_passages_and_scores"] == 0  # the scales differ in every search
+    # whole pool: all but 0003 (nine passages, not ten), 0007 and 0008 -> 7
+    assert identical["same_articles_in_same_order"] == 7
+    # first 8 passages: only 0008 differs there; the other two differ beyond the eighth -> 9
+    assert identical["same_articles_in_first_8_passages"] == 9
+
+
+def test_identical_rankings_on_different_scales_count_as_the_same_ranking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identical = _ranking_compare(tmp_path, monkeypatch, {})["identical_searches"]
+    assert identical["same_passages_and_scores"] == 0
+    assert identical["same_articles_in_same_order"] == 10
+    assert identical["same_articles_in_first_8_passages"] == 10
+
+
+def test_the_comparison_says_how_many_searches_ranked_the_same_articles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _ranking_compare(
+        tmp_path,
+        monkeypatch,
+        {"mhr-0008": [1, 0, 2, 3, 4, 5, 6, 7, 8, 9], "mhr-0003": list(range(9))},
+    )
+    assert (
+        "the same articles in the same order: 8 of 10 over the whole pool, "
+        "9 of 10 over the first 8 passages." in report.render_compare(result)
+    )
+
+
+def test_a_comparison_written_before_the_ranking_was_counted_still_renders() -> None:
+    from test_round2_fast import _comparison
+
+    result = _comparison()
+    assert "same_articles_in_same_order" not in result["identical_searches"]
+    assert "Ignoring the scores" not in report.render_compare(result)

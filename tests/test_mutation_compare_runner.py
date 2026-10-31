@@ -223,7 +223,14 @@ def test_each_runs_auroc_is_answerable_against_null_on_its_own_top_scores(
 def test_the_counts_of_questions_and_identical_searches(compared: dict[str, Any]) -> None:
     assert compared["questions"] == {"a": 10, "b": 10, "compared": 10}
     # the same passages and scores: q1 and q4 (same pattern, same top score) and both nulls
-    assert compared["identical_searches"] == {"of": 10, "same_passages_and_scores": 4}
+    # the same articles in the same order: the same four, since every other pair uses two patterns
+    # of the table above, whose article lists differ both over the whole list and in its first 8
+    assert compared["identical_searches"] == {
+        "of": 10,
+        "same_passages_and_scores": 4,
+        "same_articles_in_same_order": 4,
+        "same_articles_in_first_8_passages": 4,
+    }
 
 
 def test_each_run_is_described_with_a_twelve_character_code_hash(tmp_path: Path) -> None:

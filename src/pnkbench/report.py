@@ -473,7 +473,8 @@ def render_compare(result: Mapping[str, Any]) -> str:
         f"the {result['questions']['compared']} they share. Searches that returned exactly the same "
         f"passages in the same order with the same scores: "
         f"{result['identical_searches']['same_passages_and_scores']} of {result['identical_searches']['of']}."
-        '\n\nPaired on the same answerable questions. "B found, A missed" counts questions; the '
+        + _same_ranking(result["identical_searches"])
+        + '\n\nPaired on the same answerable questions. "B found, A missed" counts questions; the '
         "sign test is exact, two-sided, on those discordant pairs.\n\n"
         + table(
             ["measure", "A", "B", "B found, A missed", "A found, B missed", "sign test p"], rows
@@ -487,6 +488,18 @@ def render_compare(result: Mapping[str, Any]) -> str:
         f"B {num(result['null_top1_auroc']['b'])}.\n"
         + _transfer_section(result.get("threshold_transfer"))
         + _set_aside_section(result.get("without_set_aside_articles"))
+    )
+
+
+def _same_ranking(identical: Mapping[str, Any]) -> str:
+    """The searches that ranked the same articles the same way, scores ignored; empty if not recorded."""
+    if "same_articles_in_same_order" not in identical:
+        return ""  # a comparison written before this was counted
+    n = identical["of"]
+    return (
+        f" Ignoring the scores, searches that returned the same articles in the same order: "
+        f"{identical['same_articles_in_same_order']} of {n} over the whole pool, "
+        f"{identical['same_articles_in_first_8_passages']} of {n} over the first 8 passages."
     )
 
 
