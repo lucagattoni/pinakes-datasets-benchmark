@@ -1,0 +1,193 @@
+{
+  "a": {
+    "run_id": "20261030_1826-baseline-pypi-0.32.8",
+    "config": "baseline",
+    "passages_per_search": 20,
+    "chunking_metadata": "off",
+    "chunking_max_tokens": null,
+    "pinakes": "0.32.8 (pypi, code ad0db0547b7e)"
+  },
+  "b": {
+    "run_id": "20261031_1646-baseline-fastembed-pypi-0.32.8",
+    "config": "baseline-fastembed",
+    "passages_per_search": 20,
+    "chunking_metadata": "off",
+    "chunking_max_tokens": null,
+    "pinakes": "0.32.8 (pypi, code ad0db0547b7e)"
+  },
+  "questions": {
+    "a": 2556,
+    "b": 2556,
+    "compared": 2556
+  },
+  "identical_searches": {
+    "of": 2556,
+    "same_passages_and_scores": 0,
+    "same_articles_in_same_order": 2424,
+    "same_articles_in_first_8_passages": 2507
+  },
+  "answerable": {
+    "all_evidence_in_first_8_passages": {
+      "n": 2255,
+      "a_rate": 0.4337028824833703,
+      "b_rate": 0.43325942350332597,
+      "b_found_a_missed": 0,
+      "a_found_b_missed": 1,
+      "both_found": 977,
+      "neither_found": 1277,
+      "sign_test_p": 1.0
+    },
+    "all_evidence_in_first_20_passages": {
+      "n": 2255,
+      "a_rate": 0.6097560975609756,
+      "b_rate": 0.6088691796008869,
+      "b_found_a_missed": 0,
+      "a_found_b_missed": 2,
+      "both_found": 1373,
+      "neither_found": 880,
+      "sign_test_p": 0.5
+    },
+    "all_evidence_in_first_5_docs": {
+      "n": 2255,
+      "a_rate": 0.43458980044345896,
+      "b_rate": 0.43414634146341463,
+      "b_found_a_missed": 0,
+      "a_found_b_missed": 1,
+      "both_found": 979,
+      "neither_found": 1275,
+      "sign_test_p": 1.0
+    },
+    "all_evidence_in_first_10_docs": {
+      "n": 2255,
+      "a_rate": 0.5751662971175167,
+      "b_rate": 0.5738359201773836,
+      "b_found_a_missed": 1,
+      "a_found_b_missed": 4,
+      "both_found": 1293,
+      "neither_found": 957,
+      "sign_test_p": 0.375
+    },
+    "any_evidence_in_first_5_passages": {
+      "n": 2255,
+      "a_rate": 0.9148558758314855,
+      "b_rate": 0.9148558758314855,
+      "b_found_a_missed": 0,
+      "a_found_b_missed": 0,
+      "both_found": 2063,
+      "neither_found": 192,
+      "sign_test_p": null
+    }
+  },
+  "by_question_type": {
+    "comparison_query": {
+      "n": 856,
+      "a_rate": 0.602803738317757,
+      "b_rate": 0.602803738317757,
+      "b_found_a_missed": 0,
+      "a_found_b_missed": 0,
+      "both_found": 516,
+      "neither_found": 340,
+      "sign_test_p": null
+    },
+    "inference_query": {
+      "n": 816,
+      "a_rate": 0.25245098039215685,
+      "b_rate": 0.25245098039215685,
+      "b_found_a_missed": 0,
+      "a_found_b_missed": 0,
+      "both_found": 206,
+      "neither_found": 610,
+      "sign_test_p": null
+    },
+    "temporal_query": {
+      "n": 583,
+      "a_rate": 0.4391080617495712,
+      "b_rate": 0.43739279588336194,
+      "b_found_a_missed": 0,
+      "a_found_b_missed": 1,
+      "both_found": 255,
+      "neither_found": 327,
+      "sign_test_p": 1.0
+    }
+  },
+  "null_top1_auroc": {
+    "a": 0.9441536342273722,
+    "b": 0.9442376115093075
+  },
+  "threshold_transfer": {
+    "a_thresholds": {
+      "low_below": 0.0124,
+      "high_above": 0.1565
+    },
+    "b_thresholds": {
+      "low_below": -4.3787,
+      "high_above": -1.6845
+    },
+    "labels": {
+      "a_scores_a_thresholds": {
+        "answerable": {
+          "n": 1140,
+          "high": 1030,
+          "medium": 95,
+          "low": 15,
+          "unknown": 0
+        },
+        "null": {
+          "n": 154,
+          "high": 25,
+          "medium": 59,
+          "low": 70,
+          "unknown": 0
+        }
+      },
+      "b_scores_b_thresholds": {
+        "answerable": {
+          "n": 1140,
+          "high": 1030,
+          "medium": 95,
+          "low": 15,
+          "unknown": 0
+        },
+        "null": {
+          "n": 154,
+          "high": 25,
+          "medium": 59,
+          "low": 70,
+          "unknown": 0
+        }
+      },
+      "b_scores_a_thresholds": {
+        "answerable": {
+          "n": 1140,
+          "high": 816,
+          "medium": 20,
+          "low": 304,
+          "unknown": 0
+        },
+        "null": {
+          "n": 154,
+          "high": 14,
+          "medium": 1,
+          "low": 139,
+          "unknown": 0
+        }
+      },
+      "a_scores_b_thresholds": {
+        "answerable": {
+          "n": 1140,
+          "high": 1140,
+          "medium": 0,
+          "low": 0,
+          "unknown": 0
+        },
+        "null": {
+          "n": 154,
+          "high": 154,
+          "medium": 0,
+          "low": 0,
+          "unknown": 0
+        }
+      }
+    }
+  }
+}

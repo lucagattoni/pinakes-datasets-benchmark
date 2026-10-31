@@ -30,15 +30,34 @@ Everything below is read from the committed run
 - **Pinakes `main` against the release.** The 0.32.8 release and `main` at `b1bad68` both report version 0.32.8, but the installed Python is byte-identical (the same code hash, `ad0db0547b7e…`), and on a **freshly rebuilt** knowledge base 200 of 200 sampled searches returned the same passages in the same order with the same scores ([comparison](runs/compare--20261030_1826-baseline-pypi-0.32.8--20261030_2030-baseline-git-b1bad68.md); that sample was run from a scratch checkout, so its header records no benchmark commit). The same check shows that rebuilding is deterministic.
 - **The same searches, repeated in one process** after the run, returned identical rankings and scores for 60 of 60; on a separate 147-item probe, rankings and scores were also identical whether 1, 2, 3 or 4 worker processes ran.
 
+### The same Pinakes on its other provider
+
+[`20261031_1646-baseline-fastembed-pypi-0.32.8`](runs/20261031_1646-baseline-fastembed-pypi-0.32.8/report.md) is the same Pinakes 0.32.8 (the installed code hashes identically) run through **fastembed** instead of sentence-transformers, over the same 8,497 searches with the same defaults ([paired comparison](runs/compare--20261030_1826-baseline-pypi-0.32.8--20261031_1646-baseline-fastembed-pypi-0.32.8.md)). It is not the same models. fastembed maps the two ids to its own ONNX files: for the embedding model a float16, operator-fused export from a different Hub repository (`Qdrant/bge-small-en-v1.5-onnx-Q`, whose tensors are float16 with no quantization operators, whatever the name suggests), and for the reranker the BAAI repository's own float32 ONNX file; both ran on the CPU. fastembed takes no revision, so the run pins and records the files instead ([`configs/models.toml`](configs/models.toml)).
+
+| | sentence-transformers (GPU) | fastembed (CPU) |
+|---|---|---|
+| every gold article in the first 8 passages | 43.4% | 43.3% |
+| every gold article in the first 20 passages | 61.0% | 60.9% |
+| any gold article in the first 5 passages | 91.5% | 91.5% |
+| AUROC, answerable against null | 0.944 | 0.944 |
+| null labelled high, held-out half, by each run's own thresholds | 16.2% | 16.2% |
+| thresholds fitted (`low_below`, `high_above`) | 0.0124, 0.1565 | −4.3787, −1.6845 |
+| top-1 rerank score, lowest to highest | 0.00 to 1.00 | −9.28 to 10.31 |
+
+- **The two providers rank alike.** Paired on the same questions, fastembed found none that sentence-transformers missed and missed one that it found (every gold article in the first 8 passages; exact sign test p = 1.0). 2,424 of 2,556 searches (94.8%) returned the same articles in the same order over the whole pool of 20, and 2,507 (98.1%) over the first 8 passages. No search returned identical scores, which cannot happen across two scales.
+- **The confidence thresholds do not carry over.** Labelling fastembed's held-out scores with the thresholds fitted under sentence-transformers calls 90.3% of the 154 null questions low-confidence (45.5% with its own thresholds) and also 26.7% of the 1,140 answerable ones (1.3% with its own). The other way round, every sentence-transformers score is above fastembed's high threshold (−1.68), so all 154 null and all 1,140 answerable questions are labelled high: the confidence signal is gone. The rule applied is Pinakes' own, checked against Pinakes' labels for each run's own thresholds (0 mismatches in 600 searches each).
+- **Whether Pinakes would apply them depends on the manifest.** Pinakes accepts stored thresholds when their `fitted_for` equals the active reranker's `model@revision` ([`confidence_of`](https://github.com/lucagattoni/pinakes/blob/main/src/pinakes/search.py)), and both providers fill that string from the manifest alone ([`embed.py`](https://github.com/lucagattoni/pinakes/blob/main/src/pinakes/embed.py)). This benchmark's `st` manifest names a revision, so its thresholds carry `…@2cfc18c9…` while fastembed's unpinned manifest reads `BAAI/bge-reranker-base`, and Pinakes would answer `unknown`. A default manifest names no revision, so on both sides the string is `BAAI/bge-reranker-base` and the thresholds would be accepted. Switching a real knowledge base from one provider to the other, end to end, was **not run**.
+- **Speed is not compared.** The run took 12,870 s against 2,356 s, and its median search was 4,266 ms against 769 ms, but two things differ besides the provider: the CPU against the GPU, and another session's CPU-heavy job was running beside it until at least 17:14 UTC, 28 minutes into the run, and had ended by 20:22 UTC (the load average read 18 at the start, 28 at 17:12 and 7 at 20:22). Do not read a ratio from these figures.
+
 ### What this shows about Pinakes
 
 - **A paragraph is a chunk, by design** ([DESIGN §4.6](https://github.com/lucagattoni/pinakes/blob/main/docs/DESIGN.md)). On plain-text news this gives 28,748 chunks for 609 articles, median 38 tokens, so 20 passages cover about 10 articles (median; 6 to 15 at the 10th to 90th percentile). That is the context for the gap between "some" and "all" above.
-- **The rerank score scale depends on the provider.** With `sentence-transformers` the reranker returns sigmoid probabilities between 0 and 1 (read from Pinakes' provider code and the sentence-transformers source, and seen in every one of this run's scores), while Pinakes' own calibration notes record values of about −0.28 and −7.85. A confidence threshold is stored with `fitted_for = model@revision`, which names neither provider nor scale. Whether a threshold fitted under one provider is silently misapplied under the other was **not run here** (no `fastembed` environment); it is worth checking.
+- **The rerank score scale depends on the provider, and a stored threshold does not say which.** `sentence-transformers` returns sigmoid probabilities between 0 and 1 (read from the sentence-transformers source and seen in every score of its run); `fastembed` returns the model's raw output, here from −9.28 to 10.31 (read from fastembed's source and seen in its run). A threshold is stored with `fitted_for = model@revision`, which names neither provider nor scale, and [the comparison above](#the-same-pinakes-on-its-other-provider) measured what a wrong scale does: 26.7% of answerable questions labelled low-confidence, or every question labelled high. Worth reporting to Pinakes: record the provider, or the scale, with the thresholds.
 - **`metadata = "prefix"` needs a lower `max_tokens`**: Pinakes refuses to build at the default 510 for 37 of these 609 documents, and names 459 as the limit that fits them all.
 
 ### Limits
 
-One dataset, whose questions and answers were generated by a language model; one machine; default settings throughout (`final_k` and the candidate pool sizes were not tuned); the filters are oracles built from the gold articles' own metadata, so they test the machinery and not a user's choice of filter; latencies were measured with three workers sharing one GPU and say little about a single query. Not run yet: a `fastembed` baseline, Pinakes' graph channel, and the paid `--deep` loop. The pipeline is written for MultiHop-RAG; [adding another dataset](datasets/README.md#adding-one) needs a small generalisation first.
+One dataset, whose questions and answers were generated by a language model; one machine; default settings throughout (`final_k` and the candidate pool sizes were not tuned); the filters are oracles built from the gold articles' own metadata, so they test the machinery and not a user's choice of filter; latencies were measured with three workers sharing one GPU (`sentence-transformers`) or the CPU cores (`fastembed`, beside another job for part of the run) and say little about a single query. Not run yet: Pinakes' graph channel and the paid `--deep` loop, and a manifest switched from one provider to the other. The pipeline is written for MultiHop-RAG; [adding another dataset](datasets/README.md#adding-one) needs a small generalisation first.
 
 ## The two things being measured
 
@@ -110,6 +129,7 @@ A run lives in `runs/<UTC time>-<config>-<pinakes>/`: `run.json` (everything tha
 Three were the maintainer's, asked before building: **Pinakes 0.32.8 as the baseline with a switch for `main`**;
 **the `sentence-transformers` provider** (not `fastembed`); and **all four extras** (Pinakes' harness
 export, the metadata-prefix variant, filter questions derived from metadata, confidence calibration).
+The `fastembed` baseline was run afterwards, at the maintainer's request (20261031).
 
 Settled from sources, not asked: Python 3.13 and `uv` (Pinakes requires 3.13); the model weights pinned to the Hub
 `main` commits that were verified equal to the cached ones (Pinakes records no revision unless the manifest names one);
