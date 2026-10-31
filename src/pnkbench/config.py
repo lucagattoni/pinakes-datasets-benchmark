@@ -122,9 +122,13 @@ def load_onnx_pins(directory: Path | None = None) -> OnnxPins:
     )
 
     def pin(section: str) -> OnnxPin:
-        table = raw.get("fastembed", {}).get(section)
-        if table is None:
+        fastembed = raw.get("fastembed")
+        table = fastembed.get(section) if isinstance(fastembed, dict) else None
+        if not isinstance(table, dict):
             raise ConfigError(f"models.toml has no [fastembed.{section}] table")
+        for key in ("source", "revision", "file", "sha256"):
+            if key not in table:
+                raise ConfigError(f"models.toml [fastembed.{section}] has no {key!r}")
         revision, digest = str(table["revision"]), str(table["sha256"])
         if len(revision) != 40 or set(revision) - set("0123456789abcdef"):
             raise ConfigError(

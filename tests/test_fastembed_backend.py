@@ -14,9 +14,12 @@ for the shipped pins, the FIPS 180 test vector for SHA-256 of "abc", and hand ar
 
 from __future__ import annotations
 
+import builtins
+import dataclasses
 import hashlib
 import json
 import platform
+import re
 import shutil
 import sys
 import tomllib
@@ -520,6 +523,7 @@ def test_a_light_run_on_other_files_stops_before_a_single_search(
     with pytest.raises(kb.BuildError, match=r"embedding sha256: loaded '0{64}'"):
         pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
     assert searched == []
+    assert list(paths.runs_dir().iterdir()) == []  # no directory left to collide with a retry
 
 
 def test_a_light_run_with_no_fastembed_model_loaded_stops(
@@ -856,7 +860,7 @@ def _transfer_of(
     return compare.compare_runs(run_a, run_b, make_dataset())
 
 
-def _counts(n: int, high: int, medium: int, low: int) -> dict[str, int]:
+def _counts(n: int, high: int = 0, medium: int = 0, low: int = 0) -> dict[str, int]:
     return {"n": n, "high": high, "medium": medium, "low": low, "unknown": 0}
 
 
@@ -964,3 +968,270 @@ def test_the_latency_note_names_what_the_workers_actually_shared(
         header["artefacts"] = artefacts
     text = report._latency_section({"p50": 12.0, "p95": 90.0}, header)
     assert f"3 worker(s) sharing {shared} (so under contention): p50 12, p95 90." in text
+
+
+# --- gaps an independent reviewer's own mutants found (each test below killed one) ---------------
+
+
+def test_a_pin_cannot_be_changed_after_it_is_read() -> None:
+    pin = load_onnx_pins(REAL_CONFIGS).embedding
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        pin.sha256 = "0" * 64  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("missing", ["source", "revision", "file", "sha256"])
+def test_a_pin_table_missing_a_key_is_a_config_error_naming_the_key(
+    tmp_path: Path, missing: str
+) -> None:
+    body = "".join(
+        line + "\n" for line in _table("embedding").splitlines() if not line.startswith(missing)
+    )
+    with pytest.raises(ConfigError, match=rf"\[fastembed\.embedding\] has no '{missing}'"):
+        load_onnx_pins(_models_toml(tmp_path, body + _table("rerank")))
+
+
+def test_an_empty_pin_table_is_a_table_with_no_keys_not_a_missing_table(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"\[fastembed\.rerank\] has no 'source'"):
+        load_onnx_pins(_models_toml(tmp_path, _table("embedding") + "[fastembed.rerank]\n"))
+
+
+@pytest.mark.parametrize("section", ["embedding", "rerank"])
+def test_a_pin_that_is_not_a_table_is_a_config_error(tmp_path: Path, section: str) -> None:
+    other = "rerank" if section == "embedding" else "embedding"
+    text = f"[fastembed]\n{section} = 3\n" + _table(other)  # a plain value where a table belongs
+    with pytest.raises(ConfigError, match=rf"no \[fastembed\.{section}\] table"):
+        load_onnx_pins(_models_toml(tmp_path, text))
+
+
+def test_a_fastembed_entry_that_is_not_a_table_is_a_config_error(tmp_path: Path) -> None:
+    with pytest.raises(ConfigError, match=r"no \[fastembed\.embedding\] table"):
+        load_onnx_pins(_models_toml(tmp_path, "fastembed = 3\n"))
+
+
+def test_the_provider_stop_says_which_provider_the_backend_should_give() -> None:
+    with pytest.raises(kb.BuildError, match=r"backend 'light' should give 'fastembed'"):
+        kb.pin_models(_manifest("sentence-transformers", "fastembed"), _PINS, backend="light")
+    with pytest.raises(kb.BuildError, match=r"backend 'st' should give 'sentence-transformers'"):
+        kb.pin_models(_manifest("fastembed", "fastembed"), _PINS, backend="st")
+
+
+def test_a_wrong_provider_is_reported_before_a_wrong_model_id() -> None:
+    text = _manifest("sentence-transformers", "fastembed", model="other-model")
+    with pytest.raises(kb.BuildError, match=r"\[embedding\] provider 'sentence-transformers'"):
+        kb.pin_models(text, _PINS, backend="light")
+
+
+def test_a_record_with_no_fields_is_listed_field_by_field_not_called_unloaded() -> None:
+    found = _found()
+    found["embedding"] = {}
+    with pytest.raises(kb.BuildError) as raised:
+        kb.verify_artefacts(found, _ONNX)
+    assert "embedding source: loaded None, pinned 'a/b'" in str(raised.value)
+    assert "was not loaded" not in str(raised.value)
+
+
+def test_the_artefact_stop_opens_with_what_it_is_about() -> None:
+    found = _found()
+    found["embedding"]["sha256"] = "x"
+    with pytest.raises(kb.BuildError) as raised:
+        kb.verify_artefacts(found, _ONNX)
+    assert str(raised.value).startswith(
+        "fastembed loaded other files than configs/models.toml pins:\n  - "
+    )
+
+
+def test_a_light_build_closes_the_kb_when_reading_the_files_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _light_build(monkeypatch, tmp_path, {})
+
+    def moved(handle: Any) -> Any:
+        raise pinakes_api.InterfaceError("fastembed moved its internals")
+
+    monkeypatch.setattr(pinakes_api, "loaded_artefacts", moved)
+    config = config_module.load("baseline-fastembed", REAL_CONFIGS)
+    with pytest.raises(pinakes_api.InterfaceError):
+        kb.build_kb(make_dataset(), config, log=lambda m: None)
+    assert fake.closed == [1]
+
+
+def test_the_interface_error_names_which_model_could_not_be_read(tmp_path: Path) -> None:
+    good = _loaded(_snapshot(tmp_path, "X--m", "m.onnx", b"abc"), repo="X/m", file="m.onnx")
+    with pytest.raises(pinakes_api.InterfaceError, match=r"loaded for the embedding model"):
+        pinakes_api.loaded_artefacts(_kb(SimpleNamespace(), good))
+    with pytest.raises(pinakes_api.InterfaceError, match=r"loaded for the reranker"):
+        pinakes_api.loaded_artefacts(_kb(good, SimpleNamespace()))
+
+
+def test_the_snapshot_error_shows_the_whole_directory(tmp_path: Path) -> None:
+    directory = tmp_path / "somewhere" / "else"
+    directory.mkdir(parents=True)
+    (directory / "m.onnx").write_bytes(b"abc")
+    handle = _kb(_loaded(directory, repo="X/m", file="m.onnx"), None, r="sentence-transformers")
+    with pytest.raises(
+        pinakes_api.InterfaceError,
+        match=re.escape(f"from {directory}, which is not a Hugging Face snapshot"),
+    ):
+        pinakes_api.loaded_artefacts(handle)
+
+
+def test_the_inner_model_is_not_accepted_in_place_of_the_wrapper(tmp_path: Path) -> None:
+    inner = _loaded(_snapshot(tmp_path, "X--m", "m.onnx", b"abc"), repo="X/m", file="m.onnx")
+    handle = _kb(inner._model.model, None, r="sentence-transformers")
+    with pytest.raises(
+        pinakes_api.InterfaceError, match="cannot tell which files fastembed loaded"
+    ):
+        pinakes_api.loaded_artefacts(handle)
+
+
+@pytest.mark.parametrize("library", ["torch", "onnxruntime"])
+def test_a_library_that_is_installed_but_will_not_import_is_recorded_as_absent(
+    monkeypatch: pytest.MonkeyPatch, library: str
+) -> None:
+    other = "onnxruntime" if library == "torch" else "torch"
+    monkeypatch.setitem(sys.modules, other, None)
+    real = builtins.__import__
+
+    def refuse(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name == library:
+            raise ImportError(f"{library}: dlopen failed")  # not a ModuleNotFoundError
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse)
+    assert pipeline.environment()[library] is None
+
+
+def test_a_resume_refuses_when_the_earlier_header_recorded_no_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _light_world(tmp_path, monkeypatch)
+    run_dir = pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+    header = _header_of(run_dir)
+    del header["artefacts"]
+    (run_dir / "run.json").write_text(json.dumps(header))
+    with pytest.raises(RuntimeError, match="cannot resume: model files differ"):
+        pipeline.run("baseline-fastembed", workers=1, resume=run_dir, log=lambda m: None)
+
+
+def test_a_refused_light_run_writes_no_header_and_can_be_retried_at_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    found = _light_world(tmp_path, monkeypatch)
+    good = dict(found["embedding"])
+    found["embedding"]["sha256"] = "0" * 64
+    with pytest.raises(kb.BuildError):
+        pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+    assert list(paths.runs_dir().glob("*/run.json")) == []
+    found["embedding"] = good  # the retry, in the same minute as the refusal
+    run_dir = pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+    assert _header_of(run_dir)["status"] == "complete"
+
+
+def test_two_fresh_runs_in_the_same_minute_do_not_share_a_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _light_world(tmp_path, monkeypatch)
+    monkeypatch.setattr(pipeline, "new_run_id", lambda name, provenance: "fixed-id")
+    pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+    with pytest.raises(FileExistsError):
+        pipeline.run("baseline-fastembed", workers=1, log=lambda m: None)
+
+
+def _transfer_dict(
+    null: dict[str, int], a: dict[str, float], b: dict[str, float]
+) -> dict[str, Any]:
+    keys = (
+        "a_scores_a_thresholds",
+        "b_scores_b_thresholds",
+        "b_scores_a_thresholds",
+        "a_scores_b_thresholds",
+    )
+    return {
+        "a_thresholds": a,
+        "b_thresholds": b,
+        "labels": {k: {"answerable": _counts(2, 1, 1, 0), "null": null} for k in keys},
+    }
+
+
+def test_the_transfer_section_links_the_rule_it_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _transfer_of(tmp_path, monkeypatch, _A_THRESHOLDS, _B_THRESHOLDS)
+    assert (
+        "(https://github.com/lucagattoni/pinakes/blob/main/src/pinakes/search.py)"
+        in report.render_compare(result)
+    )
+
+
+def test_a_group_with_no_questions_is_n_a_not_a_division_by_zero() -> None:
+    text = report._transfer_section(_transfer_dict(_counts(0), _A_THRESHOLDS, _B_THRESHOLDS))
+    assert "| n/a (0 of 0) | n/a (0 of 0) |" in text
+
+
+def test_thresholds_are_printed_to_six_significant_digits() -> None:
+    fitted = {"low_below": 0.123456, "high_above": 2.345678}
+    text = report._transfer_section(_transfer_dict(_counts(1, 0, 1, 0), fitted, fitted))
+    assert "| 0.123456 | 2.34568 |" in text  # `:g`: six significant digits, never rounded to 3
+
+
+def test_the_transfer_columns_are_headed_in_the_order_of_their_cells() -> None:
+    text = report._transfer_section(
+        _transfer_dict(_counts(1, 0, 1, 0), _A_THRESHOLDS, _B_THRESHOLDS)
+    )
+    assert (
+        "| scores of | thresholds of | low below | high above | null labelled high | "
+        "null labelled low | answerable labelled high | answerable labelled low |"
+    ) in text
+
+
+def test_the_latency_note_sees_an_accelerator_wherever_it_sits_in_the_list() -> None:
+    header = {
+        "execution": {"workers": 2},
+        "artefacts": {
+            "embedding": {
+                "execution_providers": ["CPUExecutionProvider", "CoreMLExecutionProvider"]
+            }
+        },
+    }
+    text = report._latency_section({"p50": 1.0}, header)
+    assert "sharing the machine's cores and accelerators" in text
+
+
+def test_a_held_out_question_with_no_passage_is_unknown_not_low(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _toy_repo(tmp_path, monkeypatch)
+    rows_a = _scored_rows(_A_SCORES, 0.5)
+    rows_a[8] = _row("mhr-0008", [])  # an answerable held-out question whose search found nothing
+    run_a = _finished_run("run-a", "baseline", None, rows_a)
+    run_b = _finished_run("run-b", "baseline-fastembed", None, _scored_rows(_B_SCORES, 0.0))
+    _calibrated(run_a, _A_THRESHOLDS)
+    _calibrated(run_b, _B_THRESHOLDS)
+    labels = compare.compare_runs(run_a, run_b, make_dataset())["threshold_transfer"]["labels"]
+    # 0.9 high, 0.7 medium, 0.3 medium, nothing found, 0.75 high: the empty search is unknown
+    assert labels["a_scores_a_thresholds"]["answerable"] == _counts(5, 2, 2, 0) | {"unknown": 1}
+    assert labels["a_scores_b_thresholds"]["answerable"]["unknown"] == 1
+
+
+def test_the_transfer_covers_only_the_questions_both_runs_answered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _toy_repo(tmp_path, monkeypatch)
+    run_a = _finished_run("run-a", "baseline", None, _scored_rows(_A_SCORES, 0.5))
+    rows_b = [r for r in _scored_rows(_B_SCORES, 0.0) if r["id"] != "mhr-0009"]
+    run_b = _finished_run("run-b", "baseline-fastembed", None, rows_b)
+    _calibrated(run_a, _A_THRESHOLDS)
+    _calibrated(run_b, _B_THRESHOLDS)
+    labels = compare.compare_runs(run_a, run_b, make_dataset())["threshold_transfer"]["labels"]
+    assert labels["a_scores_a_thresholds"]["answerable"]["n"] == 4
+    assert labels["b_scores_b_thresholds"]["answerable"]["n"] == 4
+
+
+def test_release_light_tracks_release_and_conflicts_with_the_other_extras() -> None:
+    meta = tomllib.loads(
+        (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    extras = meta["project"]["optional-dependencies"]
+    assert extras["release-light"] == [extras["release"][0].replace("[st]", "[light]")]
+    conflict = {entry["extra"] for entry in meta["tool"]["uv"]["conflicts"][0]}
+    assert conflict == {"release", "release-light", "main"}

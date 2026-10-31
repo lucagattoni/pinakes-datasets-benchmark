@@ -143,7 +143,6 @@ def run(
             raise RuntimeError("cannot resume: this run used another configuration")
     else:
         run_dir = paths.runs_dir() / new_run_id(config.name, provenance)
-        run_dir.mkdir(parents=True, exist_ok=False)
 
     items = select_items(dataset, sample=sample)
     index = path_index(dataset)
@@ -231,6 +230,9 @@ def run(
         header["execution"]["earlier_wall_seconds"] = round(
             earlier.get("earlier_wall_seconds", 0) + earlier.get("wall_seconds", 0), 1
         )
+    # Created only now, so a run refused above (other model files, a changed Pinakes) leaves no
+    # directory behind to collide with the retry that follows within the same minute.
+    run_dir.mkdir(parents=True, exist_ok=previous is not None)
     _write_json(run_dir / "run.json", header)
 
     started = time.monotonic()
