@@ -60,7 +60,7 @@ and the [CLI reference](https://github.com/lucagattoni/pinakes/blob/main/docs/CL
 | | |
 |---|---|
 | Version under test | `release`: [0.32.8 from PyPI](https://pypi.org/project/pinakes/0.32.8/), or `main`: a pinned commit of Pinakes' `main` (see [switching](#switching-the-pinakes-under-test)) |
-| Models | the defaults, `BAAI/bge-small-en-v1.5` (embedding) and `BAAI/bge-reranker-base` (rerank), run through the `sentence-transformers` provider and pinned to full Hub commits in [`configs/models.toml`](configs/models.toml) |
+| Models | the defaults, `BAAI/bge-small-en-v1.5` (embedding) and `BAAI/bge-reranker-base` (rerank), run through the `sentence-transformers` provider and pinned to full Hub commits in [`configs/models.toml`](configs/models.toml). The `fastembed` provider answers to the same two names but loads **other files** (a float16 export of the embedding model from a different repository, and the reranker's own ONNX file); those are pinned by repository, commit and hash in the same file and checked at build and run, because fastembed takes no revision |
 | Settings | Pinakes' own defaults: 510-token chunks with 64 overlap, 50 BM25 and 50 vector candidates fused by RRF, the best 20 reranked. The only variant changes `[chunking] metadata` |
 | How it is called | in-process through `pinakes.search.search` on a read-only index, 20 passages per question; every call to Pinakes' internals is in one file, [`pinakes_api.py`](src/pnkbench/pinakes_api.py), which checks the installed build before a run |
 | Chunking | by design a plain-text article becomes **one chunk per paragraph** ([DESIGN §4.6](https://github.com/lucagattoni/pinakes/blob/main/docs/DESIGN.md)): 609 articles become 28,748 chunks, median 38 tokens, 70.8% under 64 tokens. So 20 passages may come from only a few articles |
@@ -94,8 +94,8 @@ Intervals are 95%: Wilson for proportions, bootstrap (500 resamples, fixed seed)
 | Step | What it does | Code |
 |---|---|---|
 | `fetch` | downloads the dataset at the pinned revision; refuses anything that differs from the manifest | [`multihop_rag.py`](src/pnkbench/multihop_rag.py) |
-| `build` | writes one file and sidecar per article, runs `pnk init` and `pnk sync`, then verifies the index holds exactly the dataset | [`kb.py`](src/pnkbench/kb.py), [`layout.py`](src/pnkbench/layout.py) |
-| `run` | searches every item with 3 worker processes; resumable; a stall raises instead of waiting; re-searches a sample in one process to check reproducibility | [`runner.py`](src/pnkbench/runner.py), [`pipeline.py`](src/pnkbench/pipeline.py) |
+| `build` | writes one file and sidecar per article, runs `pnk init` and `pnk sync`, then verifies the index holds exactly the dataset (and, for `fastembed`, that the model files it loaded are the pinned ones) | [`kb.py`](src/pnkbench/kb.py), [`layout.py`](src/pnkbench/layout.py) |
+| `run` | searches every item with 3 worker processes; resumable; a stall raises instead of waiting; re-searches a sample in one process to check reproducibility; records which model files were loaded when they cannot be pinned | [`runner.py`](src/pnkbench/runner.py), [`pipeline.py`](src/pnkbench/pipeline.py) |
 | `calibrate` | runs `python -m pinakes.calibrate` on the fit half, re-derives its thresholds from the stored scores, writes them into the KB manifest, and checks Pinakes' own confidence labels against ours | [`calibration.py`](src/pnkbench/calibration.py) |
 | `score` | every metric above, from the rows file alone | [`scoring.py`](src/pnkbench/scoring.py) |
 | `harness` | feeds the eval half to `python -m pinakes.eval`, so the numbers sit beside the ones Pinakes publishes for its own corpora | [`harness.py`](src/pnkbench/harness.py) |
@@ -151,13 +151,28 @@ reviewer's own 193 still left 98 alive.
 
 ### Switching the Pinakes under test
 
-The two extras name the same package from two sources, so they cannot share an environment. `--extra release` installs
-the pinned PyPI release; `--extra main` installs the Pinakes commit pinned in [`pyproject.toml`](pyproject.toml)
-(`[tool.uv.sources]`). Change either pin deliberately and run `uv lock`.
+The three extras cannot share an environment (`release` and `main` name the same package from two sources; `release-light`
+is kept apart so its environment holds one provider and no torch). `--extra release` installs the pinned PyPI release with the
+`sentence-transformers` provider; `--extra release-light` installs the same release with the `fastembed` provider;
+`--extra main` installs the Pinakes commit pinned in [`pyproject.toml`](pyproject.toml) (`[tool.uv.sources]`). Change a pin
+deliberately and run `uv lock`.
 
 ```bash
 uv sync --extra main --group dev
 ```
+
+The `fastembed` configuration needs its own environment, and a re-sync replaces the one in `.venv`, so do not switch while a
+job runs. Run it offline once the files are cached, so that nothing can change under it:
+
+```bash
+uv sync --extra release-light --group dev
+```
+
+```bash
+HF_HUB_OFFLINE=1 .venv/bin/pnkbench all --config baseline-fastembed --workers 3
+```
+
+`pytest -m slow` loads the `sentence-transformers` models, so it needs `--extra release`.
 
 The version string alone cannot tell a release from the commit after it, so each run also records a SHA-256 of the
 installed Pinakes code, and `compare` states both builds at the top.
@@ -168,7 +183,7 @@ installed Pinakes code, and `compare` states both builds at the top.
 |---|---|
 | `src/pnkbench/` | the tool |
 | `datasets/` | one folder per dataset: its README and `manifest.json` (`raw/` is fetched and git-ignored), and [the candidates for the next datasets](datasets/README.md) |
-| `configs/` | the configurations (`baseline`, `metadata-prefix`) and the model pins |
+| `configs/` | the configurations (`baseline`, `baseline-fastembed`, `metadata-prefix`) and the model pins |
 | `runs/` | committed results, one directory per run, and the paired comparisons; the two files carrying the dataset's question text are regenerated and git-ignored |
 | `tests/` | unit tests on a synthetic corpus, parity tests against Pinakes' own code, and the slow end-to-end tests |
 | `build/` | generated knowledge bases; git-ignored, safe to delete |
