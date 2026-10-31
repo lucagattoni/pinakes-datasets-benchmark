@@ -26,11 +26,20 @@ from typing import Any
 
 import pytest
 from test_report_format import _abstention
-from test_round2_fast import _fake_pinakes, _fake_stack, _header, _header_of, _resume_world
+from test_round2_fast import (
+    _fake_pinakes,
+    _fake_stack,
+    _finished_run,
+    _header,
+    _header_of,
+    _resume_world,
+    _row,
+    _toy_repo,
+)
 from toy import make_dataset
 
+from pnkbench import compare, kb, paths, pinakes_api, pipeline, report, runner
 from pnkbench import config as config_module
-from pnkbench import kb, paths, pinakes_api, pipeline, report, runner
 from pnkbench.config import (
     BACKENDS,
     PROVIDERS,
@@ -810,3 +819,148 @@ def test_the_report_describes_the_scale_of_the_reranker_the_run_used(
     )
     report.render_report(tmp_path)
     assert seen == [expected]
+
+
+# --- compare: do the thresholds of one provider mean anything on the other's scores --------------
+
+# The toy dataset's halves (pinned in test_layout_and_items): eval is mhr-0000, 0001, 0004, 0007,
+# 0008, 0009 and fit the other four; mhr-0005 and mhr-0007 are the null questions. So the held-out
+# half is five answerable questions and one null one, and mhr-0005 (null, fit half) must not count.
+_A_THRESHOLDS = {"low_below": 0.3, "high_above": 0.7}  # a probability scale
+_B_THRESHOLDS = {"low_below": -2.0, "high_above": 3.0}  # a logit scale
+# top-1 scores, with some placed exactly on a threshold: only strictly outside is low or high
+_A_SCORES = {0: 0.9, 1: 0.7, 4: 0.3, 8: 0.2, 9: 0.75, 7: 0.1}
+_B_SCORES = {0: 4.0, 1: 2.5, 4: 3.0, 8: -2.0, 9: -3.0, 7: 1.5}
+
+
+def _scored_rows(scores: dict[int, float], fit_score: float) -> list[dict[str, Any]]:
+    return [_row(f"mhr-{i:04d}", [[0, scores.get(i, fit_score)]]) for i in range(10)]
+
+
+def _calibrated(run_dir: Path, thresholds: dict[str, float] | None) -> None:
+    if thresholds is not None:
+        (run_dir / "calibration.json").write_text(json.dumps({"thresholds": thresholds}))
+
+
+def _transfer_of(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    a: dict[str, float] | None,
+    b: dict[str, float] | None,
+) -> dict[str, Any]:
+    _toy_repo(tmp_path, monkeypatch)
+    run_a = _finished_run("run-a", "baseline", None, _scored_rows(_A_SCORES, 0.5))
+    run_b = _finished_run("run-b", "baseline-fastembed", None, _scored_rows(_B_SCORES, 0.0))
+    _calibrated(run_a, a)
+    _calibrated(run_b, b)
+    return compare.compare_runs(run_a, run_b, make_dataset())
+
+
+def _counts(n: int, high: int, medium: int, low: int) -> dict[str, int]:
+    return {"n": n, "high": high, "medium": medium, "low": low, "unknown": 0}
+
+
+def test_each_runs_held_out_scores_are_labelled_by_its_own_thresholds_and_the_others(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transfer = _transfer_of(tmp_path, monkeypatch, _A_THRESHOLDS, _B_THRESHOLDS)[
+        "threshold_transfer"
+    ]
+    assert transfer["a_thresholds"] == _A_THRESHOLDS
+    assert transfer["b_thresholds"] == _B_THRESHOLDS
+    # A's own: 0.9 high, 0.7 medium (not above 0.7), 0.3 medium (not below 0.3), 0.2 low, 0.75 high
+    # B's own: 4.0 high, 2.5 medium, 3.0 medium (not above 3.0), -2.0 medium (not below -2.0), -3.0 low
+    # B on A's: 4.0, 2.5, 3.0 high; -2.0, -3.0 low; the null 1.5 is above 0.7, so high
+    # A on B's: every probability lies between -2 and 3, so everything is medium
+    assert transfer["labels"] == {
+        "a_scores_a_thresholds": {
+            "answerable": _counts(5, high=2, medium=2, low=1),
+            "null": _counts(1, high=0, medium=0, low=1),
+        },
+        "b_scores_b_thresholds": {
+            "answerable": _counts(5, high=1, medium=3, low=1),
+            "null": _counts(1, high=0, medium=1, low=0),
+        },
+        "b_scores_a_thresholds": {
+            "answerable": _counts(5, high=3, medium=0, low=2),
+            "null": _counts(1, high=1, medium=0, low=0),
+        },
+        "a_scores_b_thresholds": {
+            "answerable": _counts(5, high=0, medium=5, low=0),
+            "null": _counts(1, high=0, medium=1, low=0),
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [(None, _B_THRESHOLDS), (_A_THRESHOLDS, None), (None, None)],
+)
+def test_there_is_no_transfer_to_read_unless_both_runs_were_calibrated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    a: dict[str, float] | None,
+    b: dict[str, float] | None,
+) -> None:
+    assert "threshold_transfer" not in _transfer_of(tmp_path, monkeypatch, a, b)
+
+
+def test_the_transfer_table_reads_in_the_same_order_as_the_labels_it_comes_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _transfer_of(tmp_path, monkeypatch, _A_THRESHOLDS, _B_THRESHOLDS)
+    text = report.render_compare(result)
+    section = text.split("## Do the confidence thresholds transfer between the two runs?")[1]
+    rows = [
+        line
+        for line in section.split("\n")
+        if line.startswith("| ") and "thresholds of" not in line
+    ]
+    assert rows == [  # the header and separator rows are not in `rows`
+        "| A | A | 0.3 | 0.7 | 0.0% (0 of 1) | 100.0% (1 of 1) | 40.0% (2 of 5) | 20.0% (1 of 5) |",
+        "| B | B | -2 | 3 | 0.0% (0 of 1) | 0.0% (0 of 1) | 20.0% (1 of 5) | 20.0% (1 of 5) |",
+        "| B | A | 0.3 | 0.7 | 100.0% (1 of 1) | 0.0% (0 of 1) | 60.0% (3 of 5) | 40.0% (2 of 5) |",
+        "| A | B | -2 | 3 | 0.0% (0 of 1) | 0.0% (0 of 1) | 0.0% (0 of 5) | 0.0% (0 of 5) |",
+    ]
+    assert "search.py" in section  # it links the rule it names
+
+
+def test_a_comparison_without_transfer_has_no_transfer_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = _transfer_of(tmp_path, monkeypatch, None, None)
+    assert "Do the confidence thresholds transfer" not in report.render_compare(result)
+
+
+@pytest.mark.parametrize(
+    ("artefacts", "shared"),
+    [
+        (None, "one GPU"),
+        ({}, "one GPU"),
+        ({"embedding": {"execution_providers": ["CPUExecutionProvider"]}}, "the CPU cores"),
+        (
+            {
+                "embedding": {"execution_providers": ["CPUExecutionProvider"]},
+                "rerank": {"execution_providers": ["CPUExecutionProvider"]},
+            },
+            "the CPU cores",
+        ),
+        (
+            {
+                "embedding": {"execution_providers": ["CPUExecutionProvider"]},
+                "rerank": {
+                    "execution_providers": ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+                },
+            },
+            "the machine's cores and accelerators",
+        ),
+    ],
+)
+def test_the_latency_note_names_what_the_workers_actually_shared(
+    artefacts: Any, shared: str
+) -> None:
+    header: dict[str, Any] = {"execution": {"workers": 3}}
+    if artefacts is not None:
+        header["artefacts"] = artefacts
+    text = report._latency_section({"p50": 12.0, "p95": 90.0}, header)
+    assert f"3 worker(s) sharing {shared} (so under contention): p50 12, p95 90." in text

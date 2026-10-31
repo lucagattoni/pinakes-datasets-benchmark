@@ -175,7 +175,66 @@ def compare_runs(
     for qtype in sorted({info[i].qtype for i in answerable}):
         ids = [i for i in answerable if info[i].qtype == qtype]
         result["by_question_type"][qtype] = _paired(ids, rows_a, rows_b, info, primary)
+    thresholds = (_thresholds(dir_a), _thresholds(dir_b))
+    if thresholds[0] is not None and thresholds[1] is not None:
+        result["threshold_transfer"] = _transfer(common, rows_a, rows_b, info, *thresholds)
     return result
+
+
+def _thresholds(run_dir: Path) -> dict[str, float] | None:
+    """The confidence thresholds fitted for a run, or `None` if it was never calibrated."""
+    path = run_dir / "calibration.json"
+    if not path.exists():
+        return None
+    fitted = json.loads(path.read_text(encoding="utf-8"))["thresholds"]
+    return {"low_below": float(fitted["low_below"]), "high_above": float(fitted["high_above"])}
+
+
+def _labels(
+    ids: Sequence[str],
+    rows: Mapping[str, Row],
+    info: Mapping[str, scoring.QueryInfo],
+    thresholds: Mapping[str, float],
+) -> dict[str, Any]:
+    """How the held-out half is labelled when a run's scores meet one set of thresholds."""
+    held_out = [i for i in ids if info[i].split == items_module.EVAL]
+    out: dict[str, Any] = {}
+    for kind, answerable in (("answerable", True), ("null", False)):
+        chosen = [i for i in held_out if info[i].answerable is answerable]
+        counts = {scoring.HIGH: 0, scoring.MEDIUM: 0, scoring.LOW: 0, scoring.UNKNOWN: 0}
+        for i in chosen:
+            label = scoring.confidence_label(
+                scoring.top1_score(rows[i]), thresholds["low_below"], thresholds["high_above"]
+            )
+            counts[label] += 1
+        out[kind] = {"n": len(chosen), **counts}
+    return out
+
+
+def _transfer(
+    ids: Sequence[str],
+    rows_a: Mapping[str, Row],
+    rows_b: Mapping[str, Row],
+    info: Mapping[str, scoring.QueryInfo],
+    thresholds_a: Mapping[str, float],
+    thresholds_b: Mapping[str, float],
+) -> dict[str, Any]:
+    """Each run's held-out scores, labelled by its own thresholds and by the other run's.
+
+    Pinakes accepts thresholds whenever `fitted_for` (model and revision) equals the active
+    reranker's, and says nothing of the provider or the scale of the scores. This is what the
+    labels would be if two runs on different providers did match.
+    """
+    return {
+        "a_thresholds": dict(thresholds_a),
+        "b_thresholds": dict(thresholds_b),
+        "labels": {
+            "a_scores_a_thresholds": _labels(ids, rows_a, info, thresholds_a),
+            "b_scores_b_thresholds": _labels(ids, rows_b, info, thresholds_b),
+            "b_scores_a_thresholds": _labels(ids, rows_b, info, thresholds_a),
+            "a_scores_b_thresholds": _labels(ids, rows_a, info, thresholds_b),
+        },
+    }
 
 
 def _describe(header: Mapping[str, Any]) -> dict[str, Any]:

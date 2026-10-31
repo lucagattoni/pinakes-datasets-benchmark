@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 PINAKES_DOCS = "https://github.com/lucagattoni/pinakes/blob/main/docs"
+PINAKES_SOURCE = "https://github.com/lucagattoni/pinakes/blob/main/src/pinakes"
 
 
 def pct(value: float | None, digits: int = 1) -> str:
@@ -401,9 +402,18 @@ def _harness_section(h: Mapping[str, Any]) -> str:
 def _latency_section(q: Mapping[str, float] | None, header: Mapping[str, Any]) -> str:
     if not q:
         return ""
+    artefacts = header.get("artefacts")
+    if not artefacts:
+        shared = "one GPU"  # a sentence-transformers run, on the machine's one GPU
+    elif {p for a in artefacts.values() for p in a["execution_providers"]} == {
+        "CPUExecutionProvider"
+    }:
+        shared = "the CPU cores"
+    else:
+        shared = "the machine's cores and accelerators"
     return (
         "## Latency\n\nPer search, in milliseconds, with "
-        f"{header['execution']['workers']} worker(s) sharing one GPU (so under contention): "
+        f"{header['execution']['workers']} worker(s) sharing {shared} (so under contention): "
         + ", ".join(f"{k} {v:.0f}" for k, v in q.items())
         + "."
     )
@@ -475,7 +485,60 @@ def render_compare(result: Mapping[str, Any]) -> str:
         )
         + f"\n\nTop-1 score AUROC, answerable vs null: A {num(result['null_top1_auroc']['a'])}, "
         f"B {num(result['null_top1_auroc']['b'])}.\n"
+        + _transfer_section(result.get("threshold_transfer"))
         + _set_aside_section(result.get("without_set_aside_articles"))
+    )
+
+
+def _transfer_section(transfer: Mapping[str, Any] | None) -> str:
+    if not transfer:
+        return ""
+
+    def share(counts: Mapping[str, Any], label: str) -> str:
+        return f"{pct(counts[label] / counts['n'] if counts['n'] else None)} ({counts[label]} of {counts['n']})"
+
+    rows = []
+    for key, scores_of, thresholds_of in (
+        ("a_scores_a_thresholds", "A", "A"),
+        ("b_scores_b_thresholds", "B", "B"),
+        ("b_scores_a_thresholds", "B", "A"),
+        ("a_scores_b_thresholds", "A", "B"),
+    ):
+        fitted = transfer[f"{thresholds_of.lower()}_thresholds"]
+        labels = transfer["labels"][key]
+        rows.append(
+            [
+                scores_of,
+                thresholds_of,
+                f"{fitted['low_below']:g}",
+                f"{fitted['high_above']:g}",
+                share(labels["null"], "high"),
+                share(labels["null"], "low"),
+                share(labels["answerable"], "high"),
+                share(labels["answerable"], "low"),
+            ]
+        )
+    return (
+        "\n## Do the confidence thresholds transfer between the two runs?\n\n"
+        "Pinakes applies a stored threshold whenever its `fitted_for` (model and revision) equals the "
+        f"reranker in use ([`confidence_of`]({PINAKES_SOURCE}/search.py)); it records neither the "
+        "provider nor the scale of the scores. This labels each run's "
+        "held-out questions with its own thresholds and with the other run's, as Pinakes would if the "
+        "two had matched:\n\n"
+        + table(
+            [
+                "scores of",
+                "thresholds of",
+                "low below",
+                "high above",
+                "null labelled high",
+                "null labelled low",
+                "answerable labelled high",
+                "answerable labelled low",
+            ],
+            rows,
+        )
+        + "\n"
     )
 
 
