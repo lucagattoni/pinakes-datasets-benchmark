@@ -10,8 +10,8 @@ What this is, how to run it and what each measure means: [`README.md`](README.md
 ## Running
 
 - **Start any job longer than a minute from the worktree's `.venv/bin/pnkbench`, never `uv run`.** A re-sync of the environment kills the worker processes, `multiprocessing` replaces them silently, and the run stalls with no error ([README, Reproduce](README.md#reproduce)).
-- One pipeline at a time: they share one GPU, and overlapping runs make every latency meaningless.
-- The Pinakes extras `release` and `main` cannot share an environment. Say so in the commit when a pin changes; a run records the Pinakes it used, with a hash of its code.
+- One pipeline at a time, and nothing else heavy beside it: they share the machine's GPU and CPU cores, and overlapping jobs make every latency meaningless.
+- The Pinakes extras `release`, `release-light` (fastembed, no torch) and `main` cannot share an environment, and `pytest -m slow` needs `release`. Say so in the commit when a pin changes; a run records the Pinakes it used, with a hash of its code. Run a `light` config with `HF_HUB_OFFLINE=1`.
 
 ## Results are records
 
