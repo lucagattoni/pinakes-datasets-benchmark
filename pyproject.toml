@@ -13,6 +13,10 @@ dependencies = ["ruamel.yaml>=0.19"]
 [project.optional-dependencies]
 # The published release. Bump the pin deliberately; every run records what it actually used.
 release = ["pinakes[st]==0.32.8"]
+# The same release on its other provider: fastembed (ONNX), no torch. It is a separate extra, not a
+# second provider added to `release`, so the environment is exactly what `pip install pinakes[light]`
+# gives a user, and the `release` environment (and every run made in it) is unchanged.
+release-light = ["pinakes[light]==0.32.8"]
 # A commit of Pinakes' main, pinned in [tool.uv.sources] below. The sentence-transformers extra
 # is the provider the baseline runs on (see README, "Choices that were the user's").
 main = ["pinakes[st]"]
@@ -31,8 +35,9 @@ build-backend = "hatchling.build"
 packages = ["src/pnkbench"]
 
 [tool.uv]
-# The two extras name the same package from two sources, so they cannot share an environment.
-conflicts = [[{ extra = "release" }, { extra = "main" }]]
+# `release` and `main` name the same package from two sources, so they cannot share an environment;
+# `release-light` is kept apart from both so that its environment holds one provider only.
+conflicts = [[{ extra = "release" }, { extra = "release-light" }, { extra = "main" }]]
 
 [tool.uv.sources]
 pinakes = [

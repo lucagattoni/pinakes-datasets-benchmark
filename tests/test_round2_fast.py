@@ -650,6 +650,7 @@ _BUILD_MANIFEST = """[kb]
 name = "probe"
 
 [embedding]
+provider = "sentence-transformers"
 model = "e-model"
 
 [chunking]
@@ -659,6 +660,7 @@ strategy = "structural"
 rerank = "local"
 
 [rerank]
+provider = "sentence-transformers"
 model = "r-model"
 """
 _PINS = Models(embedding=ModelPin("e-model", "5" * 40), rerank=ModelPin("r-model", "2" * 40))
@@ -942,6 +944,7 @@ def _fake_stack(monkeypatch: pytest.MonkeyPatch, settings: dict[str, Any]) -> No
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setattr(pinakes_api, "open_kb", lambda root: handle)
     monkeypatch.setattr(pinakes_api, "settings_record", lambda h: settings)
+    monkeypatch.setattr(pinakes_api, "loaded_artefacts", lambda h: {})  # a sentence-transformers KB
     monkeypatch.setattr(
         runner, "run_items", lambda *a, **k: {"ran": 0, "skipped": 0, "seconds": 0.0}
     )

@@ -1,0 +1,3 @@
+description = "Pinakes as a user meets it on its lighter provider: fastembed (ONNX, CPU, no torch), every default, no title in the embedded text."
+backend = "light"
+chunking_metadata = "off"

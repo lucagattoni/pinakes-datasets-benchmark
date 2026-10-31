@@ -19,12 +19,12 @@ import shutil
 import sqlite3
 import time
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from pnkbench import layout, paths, pinakes_api
-from pnkbench.config import Config, Models, load_models
+from pnkbench.config import PROVIDERS, Config, Models, OnnxPins, load_models, load_onnx_pins
 from pnkbench.multihop_rag import Dataset
 
 _TABLE = re.compile(r"^\s*\[")
@@ -65,21 +65,54 @@ def set_chunking_metadata(manifest_text: str, value: str) -> str:
     return set_key(manifest_text, "chunking", "metadata", json.dumps(value))
 
 
-def pin_models(manifest_text: str, models: Models) -> str:
-    """Pin both model revisions, after checking the stamped model ids are the ones pinned.
+def pin_models(manifest_text: str, models: Models, *, backend: str = "st") -> str:
+    """Check the stamped providers and model ids, then pin both revisions where one is honoured.
 
     A different default model id in a newer Pinakes would make the pinned sha meaningless, so that
-    is a stop, not a silent pass.
+    is a stop, not a silent pass. So is a provider other than the backend's: the run would measure
+    something else under the configuration's name. fastembed ignores a revision, so for `light`
+    none is written (a revision in the manifest would claim files nothing checked); the files it
+    loads are checked by `verify_artefacts` instead.
     """
     stamped = tomllib.loads(manifest_text)
     for table, pin in (("embedding", models.embedding), ("rerank", models.rerank)):
+        if stamped[table].get("provider") != PROVIDERS[backend]:
+            raise BuildError(
+                f"Pinakes stamped [{table}] provider {stamped[table].get('provider')!r}; backend "
+                f"{backend!r} should give {PROVIDERS[backend]!r}."
+            )
         if stamped[table]["model"] != pin.model:
             raise BuildError(
                 f"Pinakes stamped [{table}] model {stamped[table]['model']!r}; configs/models.toml "
                 f"pins {pin.model!r}. Review the pin before measuring anything."
             )
-        manifest_text = set_key(manifest_text, table, "revision", json.dumps(pin.revision))
+        if backend == "st":
+            manifest_text = set_key(manifest_text, table, "revision", json.dumps(pin.revision))
     return manifest_text
+
+
+def verify_artefacts(found: Mapping[str, Mapping[str, Any]], pins: OnnxPins) -> None:
+    """Raise unless the files fastembed loaded are the ones `configs/models.toml` pins.
+
+    `found` is `pinakes_api.loaded_artefacts`: what was actually read from disk, not what the
+    manifest asked for. Every difference is listed, so one run shows the whole disagreement.
+    """
+    problems: list[str] = []
+    for table, pin in (("embedding", pins.embedding), ("rerank", pins.rerank)):
+        loaded = found.get(table)
+        if loaded is None:
+            problems.append(f"the {table} model was not loaded by fastembed")
+            continue
+        for field in ("source", "revision", "file", "sha256"):
+            if loaded.get(field) != getattr(pin, field):
+                problems.append(
+                    f"{table} {field}: loaded {loaded.get(field)!r}, pinned {getattr(pin, field)!r}"
+                )
+    if problems:
+        raise BuildError(
+            "fastembed loaded other files than configs/models.toml pins:\n  - "
+            + "\n  - ".join(problems)
+        )
 
 
 _CONFIDENCE_TABLE = re.compile(r"^\[retrieval\.confidence\]\s*$")
@@ -161,7 +194,9 @@ def build_kb(
     log(f"wrote {len(relpaths)} documents and sidecars in {time.monotonic() - started:.1f}s")
 
     manifest_file = root / "pinakes.toml"
-    text = pin_models(manifest_file.read_text(encoding="utf-8"), load_models())
+    text = pin_models(
+        manifest_file.read_text(encoding="utf-8"), load_models(), backend=config.backend
+    )
     if config.chunking_max_tokens is not None:
         text = set_key(text, "chunking", "max_tokens", str(config.chunking_max_tokens))
     if config.chunking_metadata != "off":
@@ -177,6 +212,14 @@ def build_kb(
     log(f"sync took {sync_seconds:.0f}s")
 
     report = verify_kb(dataset, root)
+    if config.backend == "light":
+        handle = pinakes_api.open_kb(root)
+        try:
+            artefacts = pinakes_api.loaded_artefacts(handle)
+        finally:
+            handle.close()
+        verify_artefacts(artefacts, load_onnx_pins())
+        report["model_files"] = artefacts
     report.update(
         {
             "config": config.name,

@@ -218,6 +218,55 @@ def open_kb(root: Path, *, offline: bool = True) -> Kb:
     return Kb(root, manifest, backend, reranker, connection)
 
 
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _onnx_record(wrapper: Any, what: str) -> dict[str, Any]:
+    """The Hub repository, snapshot commit, file and hash behind one loaded fastembed model.
+
+    Read from the objects fastembed built (its own model description, the directory it opened and
+    the session it runs), not from the manifest. Those are fastembed's internals, so a version that
+    moves them stops the run here instead of recording a guess.
+    """
+    inner = getattr(getattr(wrapper, "_model", None), "model", None)
+    description = getattr(inner, "model_description", None)
+    model_dir = getattr(inner, "_model_dir", None)
+    session = getattr(inner, "model", None)
+    if description is None or model_dir is None or not hasattr(session, "get_providers"):
+        raise InterfaceError(
+            f"cannot tell which files fastembed loaded for the {what}: the installed fastembed no "
+            "longer exposes model_description, _model_dir and the ONNX session where it used to"
+        )
+    directory = Path(model_dir)
+    if directory.parent.name != "snapshots":
+        raise InterfaceError(
+            f"fastembed loaded the {what} from {directory}, which is not a Hugging Face snapshot "
+            "directory, so no commit can be recorded for it"
+        )
+    return {
+        "source": description.sources.hf,
+        "revision": directory.name,
+        "file": description.model_file,
+        "sha256": _sha256_file(directory / description.model_file),
+        "execution_providers": list(session.get_providers()),
+    }
+
+
+def loaded_artefacts(kb: Kb) -> dict[str, dict[str, Any]]:
+    """The files each fastembed model loaded; empty for a model another provider runs."""
+    found: dict[str, dict[str, Any]] = {}
+    if kb.manifest.embedding.provider == "fastembed":
+        found["embedding"] = _onnx_record(kb.backend, "embedding model")
+    if kb.reranker is not None and kb.manifest.rerank.provider == "fastembed":
+        found["rerank"] = _onnx_record(kb.reranker, "reranker")
+    return found
+
+
 @dataclass(frozen=True, slots=True)
 class Outcome:
     """What one search returned: the passages in rank order, as (path, rerank score)."""

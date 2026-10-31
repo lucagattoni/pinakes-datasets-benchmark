@@ -6,6 +6,8 @@
 # weights produced it. Both shas were checked against the Hub's `main` and equalled the snapshots
 # already cached before the first build, and again on 20261030 21:35 UTC. `pnkbench build` fails if
 # Pinakes' stamped model ids differ from these.
+#
+# These two tables are for the `st` backend. The `light` backend (fastembed) is below.
 
 [embedding]
 model = "BAAI/bge-small-en-v1.5"
@@ -14,3 +16,29 @@ revision = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
 [rerank]
 model = "BAAI/bge-reranker-base"
 revision = "2cfc18c9415c912f9d8155881c133215df768a70"
+
+# The `light` backend answers to the same two model ids but loads other files: fastembed maps each id
+# to its own ONNX export (read from `TextEmbedding.list_supported_models()` and
+# `TextCrossEncoder.list_supported_models()` in fastembed 0.9.1, and from the directory the loaded
+# model reported). The embedding model is a float16, operator-fused export from a different Hub
+# repository, so it is not the float32 BAAI weights the `st` runs used (read from the file's own
+# tensors with the `onnx` package on 20261031 16:23 UTC: 149 float16 tensors, no quantization
+# operators, whatever the repository's name suggests). The reranker is the BAAI repository's own
+# float32 ONNX file (201 float tensors).
+#
+# fastembed accepts no revision, so Pinakes cannot pin these and the manifest is left unpinned. A
+# run instead records the repository, snapshot commit and SHA-256 of the file it loaded, and stops
+# if any differs from this table. Checked on 20261031 16:22 UTC: each commit is the Hub's `main`,
+# and each file's SHA-256 equals the one the Hub reports for it.
+
+[fastembed.embedding]
+source = "Qdrant/bge-small-en-v1.5-onnx-Q"
+revision = "aa8f8b060edb00e03bfdd08813a2949946c8ba55"
+file = "model_optimized.onnx"
+sha256 = "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431"
+
+[fastembed.rerank]
+source = "BAAI/bge-reranker-base"
+revision = "2cfc18c9415c912f9d8155881c133215df768a70"
+file = "onnx/model.onnx"
+sha256 = "15b9a8c3da82eddf263df571281166e00e9308fe19d077084b642ebfcaf06d2b"

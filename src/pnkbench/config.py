@@ -15,6 +15,8 @@ from typing import Any, cast
 from pnkbench import paths
 
 BACKENDS = ("st", "light")
+PROVIDERS = {"st": "sentence-transformers", "light": "fastembed"}
+"""The provider `pnk init --backend <key>` stamps into the manifest, for both models."""
 CHUNKING_METADATA = ("off", "prefix")
 
 
@@ -91,6 +93,50 @@ def load_models(directory: Path | None = None) -> Models:
         return ModelPin(model=str(table["model"]), revision=revision)
 
     return Models(embedding=pin("embedding"), rerank=pin("rerank"))
+
+
+@dataclass(frozen=True, slots=True)
+class OnnxPin:
+    """A fastembed model as the Hub stores it: a repository, a commit of it, one file and its hash.
+
+    fastembed takes no revision, so Pinakes cannot pin these files; the benchmark records which
+    ones were loaded and refuses to run on any others.
+    """
+
+    source: str
+    revision: str
+    file: str
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class OnnxPins:
+    embedding: OnnxPin
+    rerank: OnnxPin
+
+
+def load_onnx_pins(directory: Path | None = None) -> OnnxPins:
+    path = (directory or paths.configs_dir()) / "models.toml"
+    raw = cast(
+        dict[str, dict[str, dict[str, Any]]], tomllib.loads(path.read_text(encoding="utf-8"))
+    )
+
+    def pin(section: str) -> OnnxPin:
+        table = raw.get("fastembed", {}).get(section)
+        if table is None:
+            raise ConfigError(f"models.toml has no [fastembed.{section}] table")
+        revision, digest = str(table["revision"]), str(table["sha256"])
+        if len(revision) != 40 or set(revision) - set("0123456789abcdef"):
+            raise ConfigError(
+                f"models.toml [fastembed.{section}] revision must be a full 40-hex commit sha"
+            )
+        if len(digest) != 64 or set(digest) - set("0123456789abcdef"):
+            raise ConfigError(f"models.toml [fastembed.{section}] sha256 must be 64 hex digits")
+        return OnnxPin(
+            source=str(table["source"]), revision=revision, file=str(table["file"]), sha256=digest
+        )
+
+    return OnnxPins(embedding=pin("embedding"), rerank=pin("rerank"))
 
 
 def load(name: str, directory: Path | None = None) -> Config:

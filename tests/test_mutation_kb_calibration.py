@@ -266,6 +266,7 @@ _BUILD_MANIFEST = """[kb]
 name = "probe"
 
 [embedding]
+provider = "sentence-transformers"
 model = "e-model"
 
 [chunking]
@@ -275,6 +276,7 @@ strategy = "structural"
 rerank = "local"
 
 [rerank]
+provider = "sentence-transformers"
 model = "r-model"
 """
 _PINS = Models(embedding=ModelPin("e-model", "5" * 40), rerank=ModelPin("r-model", "2" * 40))

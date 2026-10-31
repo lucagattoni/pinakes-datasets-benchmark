@@ -55,6 +55,35 @@ def git_state() -> dict[str, Any]:
     }
 
 
+def environment() -> dict[str, Any]:
+    """The interpreter, the machine and the numeric libraries present; `None` for one that is not.
+
+    The `release-light` environment holds no torch, so its absence is a fact to record, not an
+    error: a run records the libraries it could have used, and `devices` says which one did.
+    """
+    record: dict[str, Any] = {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "torch": None,
+        "mps_available": None,
+        "onnxruntime": None,
+    }
+    try:
+        import torch
+    except ImportError:
+        pass
+    else:
+        record["torch"] = torch.__version__
+        record["mps_available"] = bool(torch.backends.mps.is_available())
+    try:
+        import onnxruntime
+    except ImportError:
+        pass
+    else:
+        record["onnxruntime"] = onnxruntime.__version__
+    return record
+
+
 def pinakes_label(provenance: dict[str, Any]) -> str:
     if provenance["source"] == "pypi":
         return f"pypi-{provenance['version']}"
@@ -123,18 +152,25 @@ def run(
     try:
         settings = pinakes_api.settings_record(handle)
         limit = int(handle.manifest.retrieval.fusion_top_k)
+        artefacts = pinakes_api.loaded_artefacts(handle)
         devices = {
             "embedding": str(getattr(getattr(handle.backend, "_model", None), "device", None)),
             "rerank": str(getattr(getattr(handle.reranker, "_model", None), "device", None)),
         }
     finally:
         handle.close()
+    if config.backend == "light":
+        kb.verify_artefacts(artefacts, config_module.load_onnx_pins())
+    for name, record in artefacts.items():
+        # fastembed models have no `device`; what they run on is the ONNX execution provider.
+        devices[name] = "+".join(record["execution_providers"])
 
     if previous is not None:
         changed = [
             name
             for name, was, now in (
                 ("settings (models, chunking, retrieval)", previous["settings"], settings),
+                ("model files", previous.get("artefacts") or {}, artefacts),
                 ("dataset files", previous["dataset"]["sha256"], dict(dataset.sha256)),
                 ("sample", previous["execution"]["sample_base_queries"], sample),
             )
@@ -144,8 +180,6 @@ def run(
             raise RuntimeError(
                 f"cannot resume: {', '.join(changed)} differ from the run being continued"
             )
-
-    import torch
 
     header: dict[str, Any] = {
         "schema": 1,
@@ -169,13 +203,7 @@ def run(
             "queries": len(dataset.queries),
         },
         "benchmark": {"version": __version__, **git_state()},
-        "environment": {
-            "python": platform.python_version(),
-            "platform": platform.platform(),
-            "torch": torch.__version__,
-            "mps_available": bool(torch.backends.mps.is_available()),
-            "devices": devices,
-        },
+        "environment": {**environment(), "devices": devices},
         "execution": {
             "workers": workers,
             "passages_per_search": limit,
@@ -189,6 +217,8 @@ def run(
             },
         },
     }
+    if artefacts:
+        header["artefacts"] = artefacts
     if previous is not None:
         # The header is rewritten on a resume, so what the earlier sessions recorded is carried
         # over: the original start, each resume, and the wall time they spent.
