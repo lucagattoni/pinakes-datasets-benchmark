@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pnkbench import report
 
 
@@ -46,8 +48,8 @@ def test_the_equivalence_sentence_ends_cleanly_with_and_without_mismatches() -> 
     assert broken.endswith("**1 returned different passages or scores** (e.g. ['mhr-0001']).")
 
 
-def test_the_abstention_section_does_not_call_the_scores_logits() -> None:
-    ab = {
+def _abstention() -> dict[str, Any]:
+    return {
         "auroc_answerable_vs_null": {
             s: {"auroc": 0.9, "ci95": [0.8, 0.95], "n_pos": 5, "n_neg": 3}
             for s in ("all", "eval", "fit")
@@ -71,7 +73,10 @@ def test_the_abstention_section_does_not_call_the_scores_logits() -> None:
         },
         "labels": None,
     }
-    text = report._abstention_section(ab, None)
+
+
+def test_the_abstention_section_does_not_call_the_scores_logits() -> None:
+    text = report._abstention_section(_abstention(), None, "sentence-transformers")
     assert "logit" not in text.lower()
     assert "probabilities between 0 and 1" in text
 

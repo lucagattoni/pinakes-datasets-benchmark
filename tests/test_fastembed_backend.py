@@ -25,11 +25,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from test_round2_fast import _fake_stack, _header_of, _resume_world
+from test_report_format import _abstention
+from test_round2_fast import _fake_pinakes, _fake_stack, _header, _header_of, _resume_world
 from toy import make_dataset
 
 from pnkbench import config as config_module
-from pnkbench import kb, paths, pinakes_api, pipeline, runner
+from pnkbench import kb, paths, pinakes_api, pipeline, report, runner
 from pnkbench.config import (
     BACKENDS,
     PROVIDERS,
@@ -669,8 +670,6 @@ def test_a_light_build_on_other_files_stops_and_writes_no_build_record(
 def test_a_sentence_transformers_build_opens_no_model_and_records_no_files(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from test_round2_fast import _fake_pinakes
-
     _fake_pinakes(monkeypatch, tmp_path)
     opened: list[object] = []
     monkeypatch.setattr(pinakes_api, "open_kb", lambda root: opened.append(root))
@@ -679,3 +678,135 @@ def test_a_sentence_transformers_build_opens_no_model_and_records_no_files(
     )
     assert opened == []
     assert "model_files" not in report
+
+
+# --- the report: what it says about a run on each provider ---------------------------------------
+
+
+def test_the_score_scale_is_described_for_the_provider_that_produced_it() -> None:
+    st = report._abstention_section(_abstention(), None, "sentence-transformers")
+    assert "probabilities between 0 and 1" in st
+    assert "logit" not in st.lower()
+    fastembed = report._abstention_section(_abstention(), None, "fastembed")
+    assert (
+        "raw output column without a sigmoid, so these are logits, which can be negative"
+        in fastembed
+    )
+    assert "probabilities" not in fastembed
+
+
+@pytest.mark.parametrize(("provider", "quoted"), [(None, "None"), ("other", "'other'")])
+def test_a_provider_the_report_knows_nothing_about_gets_no_claimed_scale(
+    provider: str | None, quoted: str
+) -> None:
+    text = report._abstention_section(_abstention(), None, provider)
+    assert f"does not state the scale of provider {quoted}" in text
+    assert "probabilities" not in text
+    assert "logit" not in text.lower()
+
+
+def _artefacts() -> dict[str, dict[str, Any]]:
+    return {
+        "embedding": {
+            "source": "Q/x",
+            "revision": "a" * 40,
+            "file": "m.onnx",
+            "sha256": "b" * 64,
+            "execution_providers": ["CPUExecutionProvider"],
+        },
+        "rerank": {
+            "source": "B/y",
+            "revision": "c" * 40,
+            "file": "n.onnx",
+            "sha256": "d" * 64,
+            "execution_providers": ["CoreMLExecutionProvider", "CPUExecutionProvider"],
+        },
+    }
+
+
+def _rows(text: str) -> list[str]:
+    return text.split("\n")[4:]  # past the heading, the blank line, the table's head and separator
+
+
+def test_the_header_names_the_files_fastembed_loaded_between_the_models_and_the_chunking() -> None:
+    header = _header()
+    header["artefacts"] = _artefacts()
+    rows = _rows(report._header_section(header))
+    names = [row[2:].split(" |")[0] for row in rows]
+    assert names.index("Model files") == names.index("Reranker") + 1
+    assert names.index("Chunking") == names.index("Model files") + 1
+    assert (
+        "| Model files | embedding: `Q/x` @ `aaaaaaaaaa`, `m.onnx`, sha256 `bbbbbbbbbbbbbbbb`, "
+        "ran on CPUExecutionProvider; rerank: `B/y` @ `cccccccccc`, `n.onnx`, sha256 "
+        "`dddddddddddddddd`, ran on CoreMLExecutionProvider+CPUExecutionProvider |" in rows
+    )
+
+
+@pytest.mark.parametrize("artefacts", [None, {}])
+def test_a_header_with_no_recorded_files_has_no_model_files_row(artefacts: Any) -> None:
+    header = _header()
+    if artefacts is not None:
+        header["artefacts"] = artefacts
+    assert "Model files" not in report._header_section(header)
+
+
+@pytest.mark.parametrize(
+    ("torch", "onnxruntime", "expected"),
+    [
+        ("2.9.9", None, "Python 3.13, torch 2.9.9, plat"),
+        (None, "1.2.3", "Python 3.13, onnxruntime 1.2.3, plat"),
+        ("2.9.9", "1.2.3", "Python 3.13, torch 2.9.9, onnxruntime 1.2.3, plat"),
+        (None, None, "Python 3.13, plat"),
+    ],
+)
+def test_the_environment_row_names_only_the_libraries_the_run_had(
+    torch: str | None, onnxruntime: str | None, expected: str
+) -> None:
+    header = _header()
+    header["environment"] = {
+        "python": "3.13",
+        "torch": torch,
+        "onnxruntime": onnxruntime,
+        "platform": "plat",
+        "devices": {},
+    }
+    assert f"| Environment | {expected} |" in report._header_section(header)
+
+
+def test_an_older_header_without_the_onnxruntime_key_is_still_described() -> None:
+    header = _header()  # the shape of every header written before the fastembed backend existed
+    header["environment"] = {"python": "3.13", "torch": "2.0", "platform": "plat", "devices": {}}
+    assert "| Environment | Python 3.13, torch 2.0, plat |" in report._header_section(header)
+
+
+@pytest.mark.parametrize(
+    ("rerank", "expected"),
+    [
+        ({"model": "r", "revision": None, "provider": "fastembed"}, "fastembed"),
+        (
+            {"model": "r", "revision": None, "provider": "sentence-transformers"},
+            "sentence-transformers",
+        ),
+        (None, None),
+    ],
+)
+def test_the_report_describes_the_scale_of_the_reranker_the_run_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rerank: Any, expected: str | None
+) -> None:
+    header = _header()
+    header["run_id"] = "r"
+    header["settings"]["rerank"] = rerank
+    header["settings"]["embedding"]["provider"] = "the-embedding-provider"
+    (tmp_path / "run.json").write_text(json.dumps(header))
+    summary = {"answerable": {}, "abstention": {}, "filters": {}, "latency_ms": None}
+    (tmp_path / "summary.json").write_text(json.dumps(summary))
+    seen: list[Any] = []
+    monkeypatch.setattr(report, "_header_section", lambda h, scored_by=None: "")
+    monkeypatch.setattr(report, "_answerable_section", lambda a: "")
+    monkeypatch.setattr(report, "_filters_section", lambda f: "")
+    monkeypatch.setattr(report, "_latency_section", lambda q, h: "")
+    monkeypatch.setattr(
+        report, "_abstention_section", lambda ab, calibration, provider: seen.append(provider) or ""
+    )
+    report.render_report(tmp_path)
+    assert seen == [expected]

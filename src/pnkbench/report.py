@@ -57,7 +57,8 @@ def render_report(run_dir: Path) -> str:
 
     parts = [f"# Run `{header['run_id']}`", _header_section(header, summary.get("scored_by"))]
     parts.append(_answerable_section(summary["answerable"]))
-    parts.append(_abstention_section(summary["abstention"], calibration))
+    reranker = header["settings"].get("rerank") or {}
+    parts.append(_abstention_section(summary["abstention"], calibration, reranker.get("provider")))
     parts.append(_filters_section(summary["filters"]))
     if harness is not None:
         parts.append(_harness_section(harness))
@@ -86,6 +87,7 @@ def _header_section(h: Mapping[str, Any], scored_by: Mapping[str, Any] | None = 
             if rr
             else "none",
         ),
+        *([("Model files", _model_files(h["artefacts"]))] if h.get("artefacts") else []),
         ("Chunking", ", ".join(f"{k} = {v}" for k, v in s["chunking"].items())),
         ("Retrieval", ", ".join(f"{k} = {v}" for k, v in s["retrieval"].items())),
         (
@@ -106,10 +108,7 @@ def _header_section(h: Mapping[str, Any], scored_by: Mapping[str, Any] | None = 
             f"v{h['benchmark']['version']}, commit `{(h['benchmark']['commit'] or '?')[:10]}`"
             + (", **working tree was dirty**" if h["benchmark"]["dirty"] else ""),
         ),
-        (
-            "Environment",
-            f"Python {h['environment']['python']}, torch {h['environment']['torch']}, {h['environment']['platform']}",
-        ),
+        ("Environment", _environment(h["environment"])),
     ]
     if scored_by:
         # The searches and the scoring can come from different commits: say which scored this.
@@ -123,6 +122,26 @@ def _header_section(h: Mapping[str, Any], scored_by: Mapping[str, Any] | None = 
             ),
         )
     return "## What produced this\n\n" + table(["", ""], [list(r) for r in rows])
+
+
+def _model_files(artefacts: Mapping[str, Mapping[str, Any]]) -> str:
+    """The files fastembed loaded, as recorded: the manifest could not pin them, so this is the pin."""
+    return "; ".join(
+        f"{name}: `{a['source']}` @ `{a['revision'][:10]}`, `{a['file']}`, sha256 `{a['sha256'][:16]}`, "
+        f"ran on {'+'.join(a['execution_providers'])}"
+        for name, a in artefacts.items()
+    )
+
+
+def _environment(e: Mapping[str, Any]) -> str:
+    """Python, whichever numeric libraries the environment holds, and the platform."""
+    parts = [f"Python {e['python']}"]
+    parts += [
+        f"{name} {e[key]}"
+        for name, key in (("torch", "torch"), ("onnxruntime", "onnxruntime"))
+        if e.get(key)
+    ]
+    return ", ".join([*parts, e["platform"]])
 
 
 def _reproducibility(r: Mapping[str, Any] | None) -> str:
@@ -211,7 +230,24 @@ def _answerable_section(a: Mapping[str, Any]) -> str:
     )
 
 
-def _abstention_section(ab: Mapping[str, Any], calibration: Mapping[str, Any] | None) -> str:
+_SCALE_NOTES = {
+    "sentence-transformers": "sentence-transformers applies a sigmoid to a single-label "
+    "cross-encoder, so these are probabilities between 0 and 1",
+    "fastembed": "fastembed returns a cross-encoder's raw output column without a sigmoid, so these "
+    "are logits, which can be negative",
+}
+
+
+def _scale_note(provider: str | None) -> str:
+    """What the top-1 scores are, for the reranker provider that produced them."""
+    return _SCALE_NOTES.get(
+        provider or "", f"this report does not state the scale of provider {provider!r}"
+    )
+
+
+def _abstention_section(
+    ab: Mapping[str, Any], calibration: Mapping[str, Any] | None, rerank_provider: str | None
+) -> str:
     def au(entry: Mapping[str, Any]) -> str:
         if entry["auroc"] is None:
             return "n/a"
@@ -252,8 +288,7 @@ def _abstention_section(ab: Mapping[str, Any], calibration: Mapping[str, Any] | 
         "their wording (see [the dataset notes](../../datasets/multihop-rag/README.md#caveats)), so a score "
         "gap may be reading style. The bold row keeps only null queries with none of these tells:\n\n"
         + table(["tell", "answerable queries", "null queries"], tell_rows)
-        + "\n\nTop-1 rerank score. The scale belongs to the provider: sentence-transformers applies a "
-        "sigmoid to a single-label cross-encoder, so these are probabilities between 0 and 1:\n\n"
+        + f"\n\nTop-1 rerank score. The scale belongs to the provider: {_scale_note(rerank_provider)}:\n\n"
         + table(["", "min", "p10", "p25", "median", "p75", "p90", "max"], q_rows)
     )
     if ab["labels"] is None:
