@@ -133,4 +133,4 @@ Per search, in milliseconds, with 3 worker(s) sharing one GPU (so under contenti
 
 ## Reading this
 
-The dataset's own caveats (LLM-generated queries, templated null questions, yes/no answers) are in [its README](../../datasets/multihop-rag/README.md#caveats). Pinakes chunks plain text by paragraph by design ([DESIGN §4.6](https://github.com/lucagattoni/pinakes/blob/main/docs/DESIGN.md)), which is why twenty passages can come from few articles.
+The dataset's own caveats (LLM-generated queries, null questions written differently from the answerable ones, yes/no answers) are in [its README](../../datasets/multihop-rag/README.md#caveats). Pinakes chunks plain text by paragraph by design ([DESIGN §4.6](https://github.com/lucagattoni/pinakes/blob/main/docs/DESIGN.md)), which is why twenty passages can come from few articles.

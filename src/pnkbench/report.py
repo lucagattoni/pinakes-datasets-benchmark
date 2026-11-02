@@ -422,8 +422,9 @@ def _latency_section(q: Mapping[str, float] | None, header: Mapping[str, Any]) -
 def _reading_section() -> str:
     return (
         "## Reading this\n\n"
-        "The dataset's own caveats (LLM-generated queries, templated null questions, yes/no "
-        "answers) are in [its README](../../datasets/multihop-rag/README.md#caveats). Pinakes chunks "
+        "The dataset's own caveats (LLM-generated queries, null questions written differently "
+        "from the answerable ones, yes/no answers) are in "
+        "[its README](../../datasets/multihop-rag/README.md#caveats). Pinakes chunks "
         f"plain text by paragraph by design ([DESIGN §4.6]({PINAKES_DOCS}/DESIGN.md)), which is why "
         "twenty passages can come from few articles."
     )
